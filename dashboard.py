@@ -16,13 +16,13 @@ plt.rcParams['axes.unicode_minus'] = False
 st.title("🥍 模擬賽 GPS 戰情室")
 
 @st.cache_data
-def load_data():
-    file_name = 'Cleaned_GPS_Data.csv'
-    if os.path.exists(file_name):
-        return pd.read_csv(file_name)
+def load_data(file_path):
+    if os.path.exists(file_path):
+        return pd.read_csv(file_path)
     return None
 
-df = load_data()
+# 這樣寫，只要檔案一有更新，Streamlit 就會自動發現並清除舊記憶！
+df = load_data('Cleaned_GPS_Data.csv')
 
 if df is None:
     st.error("❌ 找不到資料！請確認 Cleaned_GPS_Data.csv 是否存在。")
