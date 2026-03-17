@@ -10,7 +10,8 @@ AUS_AVG_SPEED = 117.36
 AUS_HSD_RATIO = 5.07       
 
 st.set_page_config(page_title="球隊 GPS 數據儀表板", layout="wide")
-plt.rcParams['font.sans-serif'] = ['Arial Unicode MS'] 
+# 讓系統依序尋找：Linux字體 -> Mac字體 -> 微軟字體 -> 系統預設
+plt.rcParams['font.sans-serif'] = ['WenQuanYi Zen Hei', 'Arial Unicode MS', 'Microsoft JhengHei', 'sans-serif']
 plt.rcParams['axes.unicode_minus'] = False
 
 st.title("🥍 模擬賽 GPS 戰情室")
