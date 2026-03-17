@@ -13,7 +13,6 @@ st.set_page_config(page_title="球隊 GPS 數據儀表板", layout="wide")
 plt.rcParams['font.sans-serif'] = ['Arial', 'sans-serif'] 
 plt.rcParams['axes.unicode_minus'] = False
 
-# 加入 file_path 參數，讓快取能感知檔案更新
 @st.cache_data
 def load_data(file_path):
     if os.path.exists(file_path):
@@ -31,14 +30,14 @@ else:
     df['Date'] = df['Session'].astype(str).apply(lambda x: x.split()[0])
     
     # ==========================================
-    # 🌟 新增：側邊欄主導航列 (取代原本的 Tabs)
+    # 🌟 側邊欄主導航列
     # ==========================================
     st.sidebar.title("🥍 戰情室導覽")
     page_mode = st.sidebar.radio(
         "📌 選擇分析模式：", 
         ["📊 團隊總覽 (Team Dashboard)", "👤 個人報告 (Player Profile)"]
     )
-    st.sidebar.markdown("---") # 加上一條分隔線，讓選單跟下方的設定面板分開
+    st.sidebar.markdown("---") 
 
     # ==========================================
     # 模式一：團隊總覽
@@ -46,7 +45,6 @@ else:
     if page_mode == "📊 團隊總覽 (Team Dashboard)":
         st.title("🥍 模擬賽 GPS 戰情室 - 團隊總覽")
         
-        # 專屬側邊欄設定
         st.sidebar.header("⚙️ 團隊設定面板")
         available_dates = df['Date'].dropna().unique().tolist()
         selected_date = st.sidebar.selectbox("📅 第一步：選擇日期", available_dates, key='team_date')
@@ -158,7 +156,7 @@ else:
     elif page_mode == "👤 個人報告 (Player Profile)":
         st.title("🥍 模擬賽 GPS 戰情室 - 個人報告")
         
-        # 專屬側邊欄設定
+        # 側邊欄現在只剩下選擇選手
         st.sidebar.header("👤 個人報告設定")
         
         all_players = sorted(df['Player'].unique().tolist())
@@ -170,29 +168,20 @@ else:
         if not player_dates_with_total:
             st.warning(f"💡 找不到 {selected_player} 的 Total 加總數據。")
         else:
-            st.sidebar.markdown("### 📊 圖表對比設定")
-            player_selected_date = st.sidebar.selectbox("📅 當前表現日期 (Current)：", player_dates_with_total, key='player_date')
-            
-            baseline_options = ["2025 Avg (11/30, 12/14, 12/28)"]
-            all_total_dates = df_total_only['Date'].dropna().unique().tolist()
-            baseline_options.extend(all_total_dates) 
-            
-            selected_baseline = st.sidebar.selectbox("📉 歷史比較基準 (Baseline)：", baseline_options)
-
             st.write("---")
             st.subheader(f"🛡️ {selected_player} 個人表現分析報告")
 
             col_radar, col_bar = st.columns([1, 1.5])
 
-            # 🎯 雷達圖 (Z-Score 版)
+            # 🎯 圖一：雷達圖區塊
             with col_radar:
                 st.markdown("##### 📍 六角雷達圖")
                 
-                # 為了避免側邊欄太長，我把這個雷達圖專屬的日期選單放在圖表正上方
+                # 雷達圖的專屬日期設定 (預設抓該選手的第一筆資料)
                 radar_date = st.selectbox(
                     "📅 選擇雷達圖檢視日期：", 
                     player_dates_with_total, 
-                    index=player_dates_with_total.index(player_selected_date) if player_selected_date in player_dates_with_total else 0,
+                    index=0,
                     key='radar_date'
                 )
                 
@@ -242,10 +231,21 @@ else:
                 ax_r.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
                 st.pyplot(fig_r)
 
-            # 📊 歷史四項參數對比長條圖
+            # 📊 圖二：歷史長條圖區塊
             with col_bar:
                 st.markdown("##### 📈 歷史進步軌跡")
                 
+                # 🌟 將下拉選單移進來，並使用雙欄位並排，視覺更緊湊
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    player_selected_date = st.selectbox("📅 當前表現 (Current)：", player_dates_with_total, key='player_date')
+                with col_b2:
+                    baseline_options = ["2025 Avg (11/30, 12/14, 12/28)"]
+                    all_total_dates = df_total_only['Date'].dropna().unique().tolist()
+                    baseline_options.extend(all_total_dates) 
+                    selected_baseline = st.selectbox("📉 比較基準 (Baseline)：", baseline_options)
+                
+                # 抓取並運算長條圖資料
                 player_current_bar = df_total_only[(df_total_only['Player'] == selected_player) & (df_total_only['Date'] == player_selected_date)].iloc[0]
                 
                 if selected_baseline.startswith("2025"):
