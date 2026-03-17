@@ -231,11 +231,10 @@ else:
                 ax_r.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
                 st.pyplot(fig_r)
 
-            # 📊 圖二：歷史長條圖區塊
+           # 📊 圖二：歷史長條圖區塊
             with col_bar:
                 st.markdown("##### 📈 歷史進步軌跡")
                 
-                # 🌟 將下拉選單移進來，並使用雙欄位並排，視覺更緊湊
                 col_b1, col_b2 = st.columns(2)
                 with col_b1:
                     player_selected_date = st.selectbox("📅 當前表現 (Current)：", player_dates_with_total, key='player_date')
@@ -247,6 +246,9 @@ else:
                 
                 # 抓取並運算長條圖資料
                 player_current_bar = df_total_only[(df_total_only['Player'] == selected_player) & (df_total_only['Date'] == player_selected_date)].iloc[0]
+                
+                # 🌟 這裡就是關鍵：讓 Current 的標籤動態跟著你選的日期變動！
+                current_label = f"{player_selected_date} Total"
                 
                 if selected_baseline.startswith("2025"):
                     past_data = df_total_only[(df_total_only['Player'] == selected_player) & (df_total_only['Date'].isin(['11/30', '12/14', '12/28']))]
@@ -266,7 +268,8 @@ else:
                         ('HSD Ratio (%)', 'HSD Ratio', '#93c47d', '#d9ead3')
                     ]
                     
-                    labels = [baseline_label, 'Current']
+                    # 🌟 將原本寫死的 'Current' 換成我們剛寫好的動態 current_label
+                    labels = [baseline_label, current_label]
                     
                     for i, (title, col_name, color_curr, color_past) in enumerate(metrics):
                         val_past = past_avg[col_name]
