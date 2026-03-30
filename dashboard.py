@@ -36,7 +36,6 @@ AUS_TOP_SPEED = 7.29
 AUS_AVG_SPEED = 117.36      
 AUS_HSD_RATIO = 5.07       
 
-# 建立字典結構以適配比較長條圖 (註：距離先以 5000 預設，可依實際澳洲標準微調)
 AUS_BASELINES = {
     'Australia Benchmark': {
         'dist': 5000, 
@@ -61,11 +60,9 @@ df = load_data('Cleaned_GPS_Data.csv')
 if df is None:
     st.error("❌ 找不到資料！請確認 Cleaned_GPS_Data.csv 是否存在。")
 else:
-    # 保留男網專屬的欄位重新命名
     if 'Zone 4 Ratio' in df.columns: df.rename(columns={'Zone 4 Ratio': 'HSD Ratio'}, inplace=True)
     if 'Zone 4 Distance (m)' in df.columns: df.rename(columns={'Zone 4 Distance (m)': 'HSD (m)'}, inplace=True)
     
-    # 幽靈球員過濾
     df = df[~df['Player'].astype(str).str.contains('#')]
     df['Date'] = df['Session'].astype(str).apply(lambda x: x.split()[0])
     
@@ -76,9 +73,6 @@ else:
             return 0
     df['Month'] = df['Date'].apply(get_month)
 
-    # ==========================================
-    # 🌟 聚合引擎 (自動產生月份與盃賽融合數據)
-    # ==========================================
     def generate_agg_df(subset_df, period_name):
         daily_totals = subset_df[subset_df['Session'].astype(str).str.contains('Total|total', case=False, na=False)]
         if daily_totals.empty:
@@ -141,9 +135,6 @@ else:
     )
     st.sidebar.markdown("---") 
 
-    # ==========================================
-    # 模式一：團隊總覽 (Team Dashboard)
-    # ==========================================
     if page_mode == "📊 團隊總覽 (Team Dashboard)":
         st.title("🥍 男網模擬賽 GPS 戰情室 - 團隊總覽")
         st.sidebar.header("⚙️ 團隊設定面板")
@@ -175,7 +166,6 @@ else:
             if pd.notna(team_avg_dist):
                 ax1.axhline(y=team_avg_dist, color='#e06666', linestyle='--', label='Team Avg')
             
-            # 保留男網專屬的 RPE 顯示邏輯
             for bar in bars1:
                 yval = bar.get_height()
                 if pd.notna(yval) and yval > 0:
@@ -186,12 +176,15 @@ else:
                             ax1.text(bar.get_x() + bar.get_width()/2, yval/2 - 200, f"RPE: {rpe_val}", ha='center', va='center', color='#ffd966', fontweight='bold', fontsize=11)
             
             ax1.margins(x=0.05)
+            
+            # 🎯 級距邏輯 1：總距離 (10000, +10000)
             max_d = df_plot['Total Distance (m)'].max()
             if pd.notna(max_d) and max_d >= 0:
                 y_max = max(10000, (int(max_d) // 10000 + 1) * 10000)
             else:
                 y_max = 10000
             ax1.set_ylim(0, y_max)
+            
             ax1.legend()
             st.pyplot(fig1)
 
@@ -210,9 +203,13 @@ else:
                         ax2.axhline(y=team_avg_spd, color='red', linestyle='--', alpha=0.5, label='Team Avg')
                     
                     ax2.margins(x=0.1)
+                    
+                    # 🎯 級距邏輯 2：平均速度 (100, +20)
                     max_spd = df_plot['Avg Speed (m/min)'].max()
-                    y_max_spd = max(150, (int(max_spd) // 20 + 1) * 20) if pd.notna(max_spd) and max_spd >= 0 else 150
+                    max_spd = max(max_spd, AUS_AVG_SPEED) if pd.notna(max_spd) else AUS_AVG_SPEED
+                    y_max_spd = max(100, (int(max_spd) // 20 + 1) * 20)
                     ax2.set_ylim(0, y_max_spd)
+                    
                     ax2.legend(loc='lower right')
                     st.pyplot(fig2)
                 else:
@@ -241,9 +238,12 @@ else:
                             ax2.set_xticklabels(players_spd)
                             ax2.margins(x=0.05)
                             
+                            # 🎯 級距邏輯 2：平均速度 (100, +20)
                             max_spd = df_spd['Avg Speed (m/min)'].max()
-                            y_max_spd = max(150, (int(max_spd) // 20 + 1) * 20) if pd.notna(max_spd) and max_spd >= 0 else 150
+                            max_spd = max(max_spd, AUS_AVG_SPEED) if pd.notna(max_spd) else AUS_AVG_SPEED
+                            y_max_spd = max(100, (int(max_spd) // 20 + 1) * 20)
                             ax2.set_ylim(0, y_max_spd)
+                            
                             ax2.legend(loc='lower right', fontsize='small')
                             st.pyplot(fig2)
                         else:
@@ -290,6 +290,7 @@ else:
                         ax3_q.set_xticklabels(players)
                         ax3_q.margins(x=0.05)
                         
+                        # 🎯 級距邏輯 1：總距離 (10000, +10000)
                         max_y = df_q['Total Distance (m)'].max()
                         if pd.notna(max_y) and max_y >= 0:
                             y_max = max(10000, (int(max_y) // 10000 + 1) * 10000)
@@ -333,6 +334,7 @@ else:
                         ax3_q.set_xticklabels(players)
                         ax3_q.margins(x=0.05)
                         
+                        # 單節比較保持小級距
                         max_y_q = df_q['Total Distance (m)'].max()
                         y_max_q = max(1500, (int(max_y_q) // 500 + 1) * 500) if pd.notna(max_y_q) and max_y_q >= 0 else 1500
                         ax3_q.set_ylim(0, y_max_q)
@@ -368,16 +370,22 @@ else:
                     fig4.add_vline(x=session_avg_hsd, line_dash="dash", line_color="#38761d", opacity=0.5)
                     fig4.add_hline(y=session_avg_top, line_dash="dash", line_color="#38761d", opacity=0.5)
 
-                # 🌟 單一澳洲基準星號
                 fig4.add_trace(go.Scatter(
                     x=[AUS_HSD_RATIO], y=[AUS_TOP_SPEED], mode='markers',
                     marker=dict(color='red', symbol='star', size=18, line=dict(width=1, color='darkgray')), name=default_baseline_name,
                     hovertemplate=f'<b>{default_baseline_name}</b><br>HSD Ratio: %{{x:.1f}}%<br>Top Speed: %{{y:.1f}} m/s<extra></extra>'
                 ))
 
+                # 🎯 級距邏輯 3 & 4：動態擴展 Plotly 象限圖的長寬
+                max_hsd_plot = max(x_data.max(), AUS_HSD_RATIO) if not x_data.empty else AUS_HSD_RATIO
+                max_top_plot = max(y_data.max(), AUS_TOP_SPEED) if not y_data.empty else AUS_TOP_SPEED
+                
+                x_max_plot = max(20, (int(max_hsd_plot) // 10 + 1) * 10)
+                y_max_plot = max(10, (int(max_top_plot) // 2 + 1) * 2)
+
                 fig4.update_layout(
                     xaxis_title='<b>HSD Ratio (%)</b>', yaxis_title='<b>Top Speed (m/s)</b>',
-                    xaxis=dict(range=[0, 30]), yaxis=dict(range=[0, 10]),
+                    xaxis=dict(range=[0, x_max_plot]), yaxis=dict(range=[0, y_max_plot]),
                     margin=dict(l=20, r=20, t=30, b=20), hovermode='closest',
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
@@ -505,7 +513,8 @@ else:
                             'Total Distance (m)': target['dist'],
                             'Avg Speed (m/min)': target['avg_spd'],
                             'Top Speed (m/s)': target['top_spd'],
-                            'HSD Ratio': target['hsd_ratio'] 
+                            # 🚨 關鍵修正：這裡必須除以 100，後續作圖時統一乘 100 才會完美對齊
+                            'HSD Ratio': target['hsd_ratio'] / 100 
                         }, f"AUS (基準)"
                     else:
                         past_data = df_total_only[(df_total_only['Player'] == selected_player) & (df_total_only['Date'] == b_name)]
@@ -526,7 +535,6 @@ else:
 
                 fig_b, axes = plt.subplots(1, 4, figsize=(10, 4))
                 
-                # 保留男網主色調配色的漸層
                 metrics = [
                     ('Total Distance', 'Total Distance (m)', ['#c9daf8', '#6fa8dc', '#4a86e8']),
                     ('Average Speed', 'Avg Speed (m/min)', ['#ead1dc', '#d5a6bd', '#8e7cc3']),
@@ -542,13 +550,13 @@ else:
                     if b2_data is not None:
                         plot_labels.append("B2: " + b2_label.split()[0])
                         v = b2_data[col_name] if pd.notna(b2_data[col_name]) else 0
-                        plot_vals.append(v * 100 if 'Ratio' in col_name and b2_label != "AUS (基準)" else v)
+                        plot_vals.append(v * 100 if 'Ratio' in col_name else v)
                         plot_colors.append(color_palette[0]) 
                         
                     if b1_data is not None:
                         plot_labels.append("B1: " + b1_label.split()[0])
                         v = b1_data[col_name] if pd.notna(b1_data[col_name]) else 0
-                        plot_vals.append(v * 100 if 'Ratio' in col_name and b1_label != "AUS (基準)" else v)
+                        plot_vals.append(v * 100 if 'Ratio' in col_name else v)
                         plot_colors.append(color_palette[1] if b2_data is not None else color_palette[0])
                         
                     plot_labels.append("Curr: " + current_label.split()[0])
@@ -561,6 +569,7 @@ else:
                     axes[i].spines['top'].set_visible(False)
                     axes[i].spines['right'].set_visible(False)
                     
+                    # 🎯 級距邏輯 1-4：個人報告全套用
                     if plot_vals:
                         max_y = max(plot_vals)
                         if pd.notna(max_y) and max_y >= 0:
