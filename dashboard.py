@@ -47,6 +47,18 @@ AUS_BASELINES = {
 default_baseline_name = list(AUS_BASELINES.keys())[0]
 default_baseline_data = AUS_BASELINES[default_baseline_name]
 
+# ==========================================
+# 🌟 智慧階梯算法 (2k, 4k, 6k, 8k, 10k, 20k...)
+# ==========================================
+def get_dist_ymax(max_val):
+    if pd.isna(max_val) or max_val <= 0: return 2000
+    if max_val <= 2000: return 2000
+    elif max_val <= 4000: return 4000
+    elif max_val <= 6000: return 6000
+    elif max_val <= 8000: return 8000
+    elif max_val <= 10000: return 10000
+    else: return (int(max_val) // 10000 + 1) * 10000
+
 st.set_page_config(page_title="球隊 GPS 數據儀表板", layout="wide")
 
 @st.cache_data
@@ -88,6 +100,11 @@ else:
         if 'Position' in daily_totals.columns: agg_funcs['Position'] = 'first'
         
         agg = daily_totals.groupby('Player').agg(agg_funcs).reset_index()
+        
+        # 🌟 將 RPE 限制為小數點後 1 位，畫面更乾淨
+        if 'RPE' in agg.columns:
+            agg['RPE'] = agg['RPE'].round(1)
+            
         agg['Date'] = period_name
         agg['Session'] = period_name + ' Total'
         return agg
@@ -135,6 +152,9 @@ else:
     )
     st.sidebar.markdown("---") 
 
+    # ==========================================
+    # 模式一：團隊總覽 (Team Dashboard)
+    # ==========================================
     if page_mode == "📊 團隊總覽 (Team Dashboard)":
         st.title("🥍 男網模擬賽 GPS 戰情室 - 團隊總覽")
         st.sidebar.header("⚙️ 團隊設定面板")
@@ -177,13 +197,8 @@ else:
             
             ax1.margins(x=0.05)
             
-            # 🎯 級距邏輯 1：總距離 (10000, +10000)
-            max_d = df_plot['Total Distance (m)'].max()
-            if pd.notna(max_d) and max_d >= 0:
-                y_max = max(10000, (int(max_d) // 10000 + 1) * 10000)
-            else:
-                y_max = 10000
-            ax1.set_ylim(0, y_max)
+            # 🎯 級距邏輯：套用自訂的 get_dist_ymax
+            ax1.set_ylim(0, get_dist_ymax(df_plot['Total Distance (m)'].max()))
             
             ax1.legend()
             st.pyplot(fig1)
@@ -204,7 +219,6 @@ else:
                     
                     ax2.margins(x=0.1)
                     
-                    # 🎯 級距邏輯 2：平均速度 (100, +20)
                     max_spd = df_plot['Avg Speed (m/min)'].max()
                     max_spd = max(max_spd, AUS_AVG_SPEED) if pd.notna(max_spd) else AUS_AVG_SPEED
                     y_max_spd = max(100, (int(max_spd) // 20 + 1) * 20)
@@ -238,7 +252,6 @@ else:
                             ax2.set_xticklabels(players_spd)
                             ax2.margins(x=0.05)
                             
-                            # 🎯 級距邏輯 2：平均速度 (100, +20)
                             max_spd = df_spd['Avg Speed (m/min)'].max()
                             max_spd = max(max_spd, AUS_AVG_SPEED) if pd.notna(max_spd) else AUS_AVG_SPEED
                             y_max_spd = max(100, (int(max_spd) // 20 + 1) * 20)
@@ -290,13 +303,9 @@ else:
                         ax3_q.set_xticklabels(players)
                         ax3_q.margins(x=0.05)
                         
-                        # 🎯 級距邏輯 1：總距離 (10000, +10000)
-                        max_y = df_q['Total Distance (m)'].max()
-                        if pd.notna(max_y) and max_y >= 0:
-                            y_max = max(10000, (int(max_y) // 10000 + 1) * 10000)
-                        else:
-                            y_max = 10000
-                        ax3_q.set_ylim(0, y_max)
+                        # 🎯 級距邏輯
+                        ax3_q.set_ylim(0, get_dist_ymax(df_q['Total Distance (m)'].max()))
+                        
                         ax3_q.legend(loc='upper right', fontsize='small')
                         st.pyplot(fig3_q)
                     else:
@@ -334,10 +343,8 @@ else:
                         ax3_q.set_xticklabels(players)
                         ax3_q.margins(x=0.05)
                         
-                        # 單節比較保持小級距
-                        max_y_q = df_q['Total Distance (m)'].max()
-                        y_max_q = max(1500, (int(max_y_q) // 500 + 1) * 500) if pd.notna(max_y_q) and max_y_q >= 0 else 1500
-                        ax3_q.set_ylim(0, y_max_q)
+                        # 🎯 級距邏輯：套用智慧縮放
+                        ax3_q.set_ylim(0, get_dist_ymax(df_q['Total Distance (m)'].max()))
                         
                         ax3_q.legend(loc='upper right', fontsize='small')
                         st.pyplot(fig3_q)
@@ -376,7 +383,6 @@ else:
                     hovertemplate=f'<b>{default_baseline_name}</b><br>HSD Ratio: %{{x:.1f}}%<br>Top Speed: %{{y:.1f}} m/s<extra></extra>'
                 ))
 
-                # 🎯 級距邏輯 3 & 4：動態擴展 Plotly 象限圖的長寬
                 max_hsd_plot = max(x_data.max(), AUS_HSD_RATIO) if not x_data.empty else AUS_HSD_RATIO
                 max_top_plot = max(y_data.max(), AUS_TOP_SPEED) if not y_data.empty else AUS_TOP_SPEED
                 
@@ -412,36 +418,43 @@ else:
         all_players = sorted(df['Player'].unique().tolist())
         selected_player = st.sidebar.selectbox("🏃 選擇選手：", all_players)
         
-        df_total_only = df[df['Session'].astype(str).str.contains('Total|total', case=False, na=False)]
+        # 🌟 解鎖事件限制：現在可以選擇「任何 Session」，不再只限 Total！
+        player_sessions = df[df['Player'] == selected_player]['Session'].dropna().unique().tolist()
+        all_sessions = df['Session'].dropna().unique().tolist()
         
-        player_dates_with_total = df_total_only[df_total_only['Player'] == selected_player]['Date'].dropna().unique().tolist()
-        all_total_dates = df_total_only['Date'].dropna().unique().tolist()
+        # 建立自訂週期的名稱清單 (加上 Total 綴飾)
+        custom_session_names = [f"{name} Total" for name in custom_and_auto_names]
         
-        for name in reversed(custom_and_auto_names):
-            if name in player_dates_with_total:
-                player_dates_with_total.remove(name)
-                player_dates_with_total.insert(0, name)
-            if name in all_total_dates:
-                all_total_dates.remove(name)
-                all_total_dates.insert(0, name)
+        # 強制將自訂週期排在最上方
+        for name in reversed(custom_session_names):
+            if name in player_sessions:
+                player_sessions.remove(name)
+                player_sessions.insert(0, name)
+            if name in all_sessions:
+                all_sessions.remove(name)
+                all_sessions.insert(0, name)
         
-        if not player_dates_with_total:
-            st.warning(f"💡 找不到 {selected_player} 的 Total 加總數據。")
+        if not player_sessions:
+            st.warning(f"💡 找不到 {selected_player} 的任何數據。")
         else:
+            # 取得位置
+            raw_pos = str(df[df['Player'] == selected_player]['Position'].iloc[0])
+            
             st.write("---")
             st.subheader(f"🛡️ {selected_player} (長條圖對標: {default_baseline_name}) - 個人表現分析報告")
 
             col_radar, col_bar = st.columns([1, 1.5])
 
             with col_radar:
-                st.markdown(f"##### 📍 六角雷達圖：對標當日/當期團隊平均")
-                radar_date = st.selectbox("📅 選擇雷達圖日期：", player_dates_with_total, index=0)
+                st.markdown(f"##### 📍 六角雷達圖：對標團隊平均")
+                # 雷達圖也改為選擇 Session 事件
+                radar_session = st.selectbox("📅 選擇雷達圖檢視事件：", player_sessions, index=0)
                 
-                team_radar_df = df_total_only[df_total_only['Date'] == radar_date]
+                team_radar_df = df[df['Session'] == radar_session]
                 team_mean = team_radar_df[['Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio']].mean()
                 team_std = team_radar_df[['Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio']].std().replace(0, 1).fillna(1)
                 
-                player_radar = df_total_only[(df_total_only['Player'] == selected_player) & (df_total_only['Date'] == radar_date)].iloc[0]
+                player_radar = df[(df['Player'] == selected_player) & (df['Session'] == radar_session)].iloc[0]
 
                 categories = ['Total Distance', 'Average Speed', 'Max Speed', 'HSD Ratio']
                 N = len(categories)
@@ -473,7 +486,7 @@ else:
                 ax_r.set_yticks([-2, -1, 0, 1, 2])
                 ax_r.set_yticklabels(['-2', '-1', '0', '1', '2'], color="grey", size=9, alpha=0.7)
                 
-                ax_r.plot(angles, team_ratios, linewidth=2, linestyle='dashed', color='#e06666', label=f'{radar_date} Team Avg (0)')
+                ax_r.plot(angles, team_ratios, linewidth=2, linestyle='dashed', color='#e06666', label=f'{radar_session} Team Avg (0)')
                 ax_r.fill(angles, team_ratios, color='#e06666', alpha=0.1)
                 ax_r.plot(angles, player_ratios, linewidth=2.5, color='#4a86e8', label=f'{selected_player}')
                 ax_r.fill(angles, player_ratios, color='#4a86e8', alpha=0.3)
@@ -484,27 +497,26 @@ else:
                 st.markdown("##### 📈 歷史進步軌跡")
                 compare_mode = st.radio("📊 選擇比較模式：", ["雙期比較 (2個數據)", "三期比較 (3個數據)"], horizontal=True)
                 
-                baseline_options = [default_baseline_name] + all_total_dates
+                baseline_options = [default_baseline_name] + all_sessions
                 
                 if compare_mode == "雙期比較 (2個數據)":
                     col_b1, col_b2 = st.columns(2)
                     with col_b1: 
-                        player_selected_date = st.selectbox("📅 當前表現 (Current)：", player_dates_with_total)
+                        player_selected_session = st.selectbox("📅 當前檢視事件 (Current)：", player_sessions)
                     with col_b2:
                         selected_baseline1 = st.selectbox("📉 比較基準 (Baseline)：", baseline_options)
                     selected_baseline2 = None
                 else:
                     col_b1, col_b2, col_b3 = st.columns(3)
                     with col_b1: 
-                        player_selected_date = st.selectbox("📅 當前表現 (Current)：", player_dates_with_total)
+                        player_selected_session = st.selectbox("📅 當前檢視事件 (Current)：", player_sessions)
                     with col_b2:
                         selected_baseline1 = st.selectbox("📉 比較基準 1 (Baseline 1)：", baseline_options)
                     with col_b3:
                         default_b2_idx = 1 if len(baseline_options) > 1 else 0
                         selected_baseline2 = st.selectbox("📉 比較基準 2 (Baseline 2)：", baseline_options, index=default_b2_idx)
 
-                player_current_bar = df_total_only[(df_total_only['Player'] == selected_player) & (df_total_only['Date'] == player_selected_date)].iloc[0]
-                current_label = f"{player_selected_date} (當前)"
+                player_current_bar = df[(df['Player'] == selected_player) & (df['Session'] == player_selected_session)].iloc[0]
                 
                 def get_baseline_data(b_name):
                     if b_name == default_baseline_name:
@@ -513,15 +525,14 @@ else:
                             'Total Distance (m)': target['dist'],
                             'Avg Speed (m/min)': target['avg_spd'],
                             'Top Speed (m/s)': target['top_spd'],
-                            # 🚨 關鍵修正：這裡必須除以 100，後續作圖時統一乘 100 才會完美對齊
                             'HSD Ratio': target['hsd_ratio'] / 100 
-                        }, f"AUS (基準)"
+                        }, "AUS Avg"
                     else:
-                        past_data = df_total_only[(df_total_only['Player'] == selected_player) & (df_total_only['Date'] == b_name)]
+                        past_data = df[(df['Player'] == selected_player) & (df['Session'] == b_name)]
                         if not past_data.empty:
-                            return past_data[['Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio']].mean(), f"{b_name} (基準)"
+                            return past_data[['Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio']].mean(), b_name
                         else:
-                            return None, f"{b_name} (無資料)"
+                            return None, b_name
 
                 b1_data, b1_label = get_baseline_data(selected_baseline1)
                 b2_data, b2_label = None, None
@@ -542,24 +553,28 @@ else:
                     ('HSD Ratio (%)', 'HSD Ratio', ['#eff5e1', '#d9ead3', '#93c47d'])
                 ]
                 
+                # 🌟 淨化標籤名稱，如果文字太長自動換行，且移除 B1、Cur 等字眼
+                def format_label(text):
+                    return text.replace(' ', '\n', 1)
+
                 for i, (title, col_name, color_palette) in enumerate(metrics):
                     plot_labels = []
                     plot_vals = []
                     plot_colors = []
                     
                     if b2_data is not None:
-                        plot_labels.append("B2: " + b2_label.split()[0])
+                        plot_labels.append(format_label(b2_label))
                         v = b2_data[col_name] if pd.notna(b2_data[col_name]) else 0
-                        plot_vals.append(v * 100 if 'Ratio' in col_name else v)
+                        plot_vals.append(v * 100 if 'Ratio' in col_name and b2_label != "AUS Avg" else v)
                         plot_colors.append(color_palette[0]) 
                         
                     if b1_data is not None:
-                        plot_labels.append("B1: " + b1_label.split()[0])
+                        plot_labels.append(format_label(b1_label))
                         v = b1_data[col_name] if pd.notna(b1_data[col_name]) else 0
-                        plot_vals.append(v * 100 if 'Ratio' in col_name else v)
+                        plot_vals.append(v * 100 if 'Ratio' in col_name and b1_label != "AUS Avg" else v)
                         plot_colors.append(color_palette[1] if b2_data is not None else color_palette[0])
                         
-                    plot_labels.append("Curr: " + current_label.split()[0])
+                    plot_labels.append(format_label(player_selected_session))
                     v = player_current_bar[col_name] if pd.notna(player_current_bar[col_name]) else 0
                     plot_vals.append(v * 100 if 'Ratio' in col_name else v)
                     plot_colors.append(color_palette[2]) 
@@ -569,19 +584,20 @@ else:
                     axes[i].spines['top'].set_visible(False)
                     axes[i].spines['right'].set_visible(False)
                     
-                    # 🎯 級距邏輯 1-4：個人報告全套用
                     if plot_vals:
                         max_y = max(plot_vals)
                         if pd.notna(max_y) and max_y >= 0:
                             if 'Total Distance' in title:
-                                y_max = max(10000, (int(max_y) // 10000 + 1) * 10000)
+                                axes[i].set_ylim(0, get_dist_ymax(max_y))
                             elif 'Average Speed' in title:
                                 y_max = max(100, (int(max_y) // 20 + 1) * 20)
+                                axes[i].set_ylim(0, y_max)
                             elif 'Max Speed' in title:
                                 y_max = max(10, (int(max_y) // 2 + 1) * 2)
+                                axes[i].set_ylim(0, y_max)
                             elif 'HSD Ratio' in title:
                                 y_max = max(20, (int(max_y) // 10 + 1) * 10)
-                            axes[i].set_ylim(0, y_max)
+                                axes[i].set_ylim(0, y_max)
                     
                     for bar in bars:
                         yval = bar.get_height()
