@@ -97,11 +97,11 @@ else:
             'HSD Ratio': 'mean'
         }
         if 'RPE' in daily_totals.columns: agg_funcs['RPE'] = 'mean'
+        # 🚨 防呆機制：確保資料庫裡真的有 Position 欄位才聚合
         if 'Position' in daily_totals.columns: agg_funcs['Position'] = 'first'
         
         agg = daily_totals.groupby('Player').agg(agg_funcs).reset_index()
         
-        # 🌟 將 RPE 限制為小數點後 1 位，畫面更乾淨
         if 'RPE' in agg.columns:
             agg['RPE'] = agg['RPE'].round(1)
             
@@ -175,7 +175,9 @@ else:
         if not df_filtered.empty:
             agg_dict = {'Total Distance (m)': 'max', 'Avg Speed (m/min)': 'mean', 'Top Speed (m/s)': 'max', 'HSD Ratio': 'max'}
             if 'RPE' in df_filtered.columns: agg_dict['RPE'] = 'max'
+            # 🚨 防呆機制：確保有 Position 才放入聚合字典
             if 'Position' in df_filtered.columns: agg_dict['Position'] = 'first'
+            
             df_plot = df_filtered.groupby('Player').agg(agg_dict).reset_index()
 
             st.subheader(f"1️⃣ {selected_session} 外部與內部負荷")
@@ -196,10 +198,7 @@ else:
                             ax1.text(bar.get_x() + bar.get_width()/2, yval/2 - 200, f"RPE: {rpe_val}", ha='center', va='center', color='#ffd966', fontweight='bold', fontsize=11)
             
             ax1.margins(x=0.05)
-            
-            # 🎯 級距邏輯：套用自訂的 get_dist_ymax
             ax1.set_ylim(0, get_dist_ymax(df_plot['Total Distance (m)'].max()))
-            
             ax1.legend()
             st.pyplot(fig1)
 
@@ -218,12 +217,10 @@ else:
                         ax2.axhline(y=team_avg_spd, color='red', linestyle='--', alpha=0.5, label='Team Avg')
                     
                     ax2.margins(x=0.1)
-                    
                     max_spd = df_plot['Avg Speed (m/min)'].max()
                     max_spd = max(max_spd, AUS_AVG_SPEED) if pd.notna(max_spd) else AUS_AVG_SPEED
                     y_max_spd = max(100, (int(max_spd) // 20 + 1) * 20)
                     ax2.set_ylim(0, y_max_spd)
-                    
                     ax2.legend(loc='lower right')
                     st.pyplot(fig2)
                 else:
@@ -256,7 +253,6 @@ else:
                             max_spd = max(max_spd, AUS_AVG_SPEED) if pd.notna(max_spd) else AUS_AVG_SPEED
                             y_max_spd = max(100, (int(max_spd) // 20 + 1) * 20)
                             ax2.set_ylim(0, y_max_spd)
-                            
                             ax2.legend(loc='lower right', fontsize='small')
                             st.pyplot(fig2)
                         else:
@@ -303,9 +299,7 @@ else:
                         ax3_q.set_xticklabels(players)
                         ax3_q.margins(x=0.05)
                         
-                        # 🎯 級距邏輯
                         ax3_q.set_ylim(0, get_dist_ymax(df_q['Total Distance (m)'].max()))
-                        
                         ax3_q.legend(loc='upper right', fontsize='small')
                         st.pyplot(fig3_q)
                     else:
@@ -343,8 +337,10 @@ else:
                         ax3_q.set_xticklabels(players)
                         ax3_q.margins(x=0.05)
                         
-                        # 🎯 級距邏輯：套用智慧縮放
-                        ax3_q.set_ylim(0, get_dist_ymax(df_q['Total Distance (m)'].max()))
+                        # 單節比較保持小級距
+                        max_y_q = df_q['Total Distance (m)'].max()
+                        y_max_q = max(1500, (int(max_y_q) // 500 + 1) * 500) if pd.notna(max_y_q) and max_y_q >= 0 else 1500
+                        ax3_q.set_ylim(0, y_max_q)
                         
                         ax3_q.legend(loc='upper right', fontsize='small')
                         st.pyplot(fig3_q)
@@ -360,10 +356,13 @@ else:
                 session_avg_hsd = x_data.mean()
                 session_avg_top = y_data.mean()
                 
+                # 🚨 防呆：如果有位置欄位才加上去
+                plot_text = df_plot['Player'] + " (" + df_plot['Position'] + ")" if 'Position' in df_plot.columns else df_plot['Player']
+                
                 fig4 = go.Figure()
                 fig4.add_trace(go.Scatter(
                     x=x_data, y=y_data, mode='markers+text',
-                    text=df_plot['Player'], textposition="top center",
+                    text=plot_text, textposition="top center",
                     marker=dict(color='#3d85c6', size=12, line=dict(width=1, color='white')), name='Players',
                     hovertemplate='<b>%{text}</b><br>HSD Ratio: %{x:.1f}%<br>Top Speed: %{y:.1f} m/s<extra></extra>'
                 ))
@@ -418,14 +417,11 @@ else:
         all_players = sorted(df['Player'].unique().tolist())
         selected_player = st.sidebar.selectbox("🏃 選擇選手：", all_players)
         
-        # 🌟 解鎖事件限制：現在可以選擇「任何 Session」，不再只限 Total！
         player_sessions = df[df['Player'] == selected_player]['Session'].dropna().unique().tolist()
         all_sessions = df['Session'].dropna().unique().tolist()
         
-        # 建立自訂週期的名稱清單 (加上 Total 綴飾)
         custom_session_names = [f"{name} Total" for name in custom_and_auto_names]
         
-        # 強制將自訂週期排在最上方
         for name in reversed(custom_session_names):
             if name in player_sessions:
                 player_sessions.remove(name)
@@ -437,17 +433,20 @@ else:
         if not player_sessions:
             st.warning(f"💡 找不到 {selected_player} 的任何數據。")
         else:
-            # 取得位置
-            raw_pos = str(df[df['Player'] == selected_player]['Position'].iloc[0])
-            
+            # 🚨 防呆機制：若有 Position 則顯示，沒有則省略
+            if 'Position' in df.columns:
+                raw_pos = str(df[df['Player'] == selected_player]['Position'].iloc[0])
+                pos_display = f"(註冊位置: {raw_pos} | 長條圖對標: {default_baseline_name})"
+            else:
+                pos_display = f"(長條圖對標: {default_baseline_name})"
+                
             st.write("---")
-            st.subheader(f"🛡️ {selected_player} (長條圖對標: {default_baseline_name}) - 個人表現分析報告")
+            st.subheader(f"🛡️ {selected_player} {pos_display} - 個人表現分析報告")
 
             col_radar, col_bar = st.columns([1, 1.5])
 
             with col_radar:
                 st.markdown(f"##### 📍 六角雷達圖：對標團隊平均")
-                # 雷達圖也改為選擇 Session 事件
                 radar_session = st.selectbox("📅 選擇雷達圖檢視事件：", player_sessions, index=0)
                 
                 team_radar_df = df[df['Session'] == radar_session]
@@ -502,19 +501,19 @@ else:
                 if compare_mode == "雙期比較 (2個數據)":
                     col_b1, col_b2 = st.columns(2)
                     with col_b1: 
-                        player_selected_session = st.selectbox("📅 當前檢視事件 (Current)：", player_sessions)
+                        player_selected_session = st.selectbox("📅 當前檢視事件：", player_sessions)
                     with col_b2:
-                        selected_baseline1 = st.selectbox("📉 比較基準 (Baseline)：", baseline_options)
+                        selected_baseline1 = st.selectbox("📉 比較基準：", baseline_options)
                     selected_baseline2 = None
                 else:
                     col_b1, col_b2, col_b3 = st.columns(3)
                     with col_b1: 
-                        player_selected_session = st.selectbox("📅 當前檢視事件 (Current)：", player_sessions)
+                        player_selected_session = st.selectbox("📅 當前檢視事件：", player_sessions)
                     with col_b2:
-                        selected_baseline1 = st.selectbox("📉 比較基準 1 (Baseline 1)：", baseline_options)
+                        selected_baseline1 = st.selectbox("📉 比較基準 1：", baseline_options)
                     with col_b3:
                         default_b2_idx = 1 if len(baseline_options) > 1 else 0
-                        selected_baseline2 = st.selectbox("📉 比較基準 2 (Baseline 2)：", baseline_options, index=default_b2_idx)
+                        selected_baseline2 = st.selectbox("📉 比較基準 2：", baseline_options, index=default_b2_idx)
 
                 player_current_bar = df[(df['Player'] == selected_player) & (df['Session'] == player_selected_session)].iloc[0]
                 
@@ -553,8 +552,9 @@ else:
                     ('HSD Ratio (%)', 'HSD Ratio', ['#eff5e1', '#d9ead3', '#93c47d'])
                 ]
                 
-                # 🌟 淨化標籤名稱，如果文字太長自動換行，且移除 B1、Cur 等字眼
+                # 🌟 將標籤太長的部分換行，並移除所有累贅的 (當前) (基準) 字眼
                 def format_label(text):
+                    if text == "AUS Avg": return text
                     return text.replace(' ', '\n', 1)
 
                 for i, (title, col_name, color_palette) in enumerate(metrics):
