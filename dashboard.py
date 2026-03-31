@@ -7,6 +7,7 @@ import matplotlib.font_manager as fm
 import plotly.graph_objects as go
 import os
 import shutil
+import io # 🌟 新增：用於在背景處理高畫質圖片下載
 
 # ==========================================
 # 🌟 終極防破圖系統：暴力清快取 + 絕對路徑字體
@@ -48,7 +49,7 @@ default_baseline_name = list(AUS_BASELINES.keys())[0]
 default_baseline_data = AUS_BASELINES[default_baseline_name]
 
 # ==========================================
-# 🌟 智慧階梯算法 (2k, 4k, 6k, 8k, 10k, 20k...)
+# 🌟 輔助函數：智慧階梯算法 & 圖片下載轉換器
 # ==========================================
 def get_dist_ymax(max_val):
     if pd.isna(max_val) or max_val <= 0: return 2000
@@ -58,6 +59,13 @@ def get_dist_ymax(max_val):
     elif max_val <= 8000: return 8000
     elif max_val <= 10000: return 10000
     else: return (int(max_val) // 10000 + 1) * 10000
+
+# 🌟 新增：將 Matplotlib 圖表轉為高畫質 PNG 的函數
+def get_img_buffer(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight", dpi=300) # dpi=300 確保放進簡報不模糊
+    buf.seek(0)
+    return buf
 
 st.set_page_config(page_title="球隊 GPS 數據儀表板", layout="wide")
 
@@ -97,7 +105,6 @@ else:
             'HSD Ratio': 'mean'
         }
         if 'RPE' in daily_totals.columns: agg_funcs['RPE'] = 'mean'
-        # 🚨 防呆機制：確保資料庫裡真的有 Position 欄位才聚合
         if 'Position' in daily_totals.columns: agg_funcs['Position'] = 'first'
         
         agg = daily_totals.groupby('Player').agg(agg_funcs).reset_index()
@@ -175,7 +182,6 @@ else:
         if not df_filtered.empty:
             agg_dict = {'Total Distance (m)': 'max', 'Avg Speed (m/min)': 'mean', 'Top Speed (m/s)': 'max', 'HSD Ratio': 'max'}
             if 'RPE' in df_filtered.columns: agg_dict['RPE'] = 'max'
-            # 🚨 防呆機制：確保有 Position 才放入聚合字典
             if 'Position' in df_filtered.columns: agg_dict['Position'] = 'first'
             
             df_plot = df_filtered.groupby('Player').agg(agg_dict).reset_index()
@@ -201,6 +207,8 @@ else:
             ax1.set_ylim(0, get_dist_ymax(df_plot['Total Distance (m)'].max()))
             ax1.legend()
             st.pyplot(fig1)
+            # 🌟 新增圖表一下載按鈕
+            st.download_button(label="📥 下載圖表 (外部與內部負荷)", data=get_img_buffer(fig1), file_name=f"Total_Distance_{selected_session}.png", mime="image/png")
 
             col1, col2 = st.columns(2)
             with col1:
@@ -223,6 +231,8 @@ else:
                     ax2.set_ylim(0, y_max_spd)
                     ax2.legend(loc='lower right')
                     st.pyplot(fig2)
+                    # 🌟 新增圖表二下載按鈕
+                    st.download_button(label="📥 下載圖表 (平均速度)", data=get_img_buffer(fig2), file_name=f"Avg_Speed_{selected_session}.png", mime="image/png")
                 else:
                     valid_dates = [d for d in df['Date'].unique() if '/' in str(d) and d not in custom_and_auto_names]
                     default_d = selected_date if selected_date in valid_dates else valid_dates[-1] if valid_dates else None
@@ -255,6 +265,8 @@ else:
                             ax2.set_ylim(0, y_max_spd)
                             ax2.legend(loc='lower right', fontsize='small')
                             st.pyplot(fig2)
+                            # 🌟 新增圖表二下載按鈕 (比較模式)
+                            st.download_button(label="📥 下載圖表 (平均速度比較)", data=get_img_buffer(fig2), file_name="Avg_Speed_Compare.png", mime="image/png")
                         else:
                             st.info("💡 找不到所選日期的 Total 數據來進行比較。")
                     else:
@@ -302,6 +314,8 @@ else:
                         ax3_q.set_ylim(0, get_dist_ymax(df_q['Total Distance (m)'].max()))
                         ax3_q.legend(loc='upper right', fontsize='small')
                         st.pyplot(fig3_q)
+                        # 🌟 新增圖表三下載按鈕
+                        st.download_button(label="📥 下載圖表 (每日負荷)", data=get_img_buffer(fig3_q), file_name=f"Daily_Load_{selected_date}.png", mime="image/png")
                     else:
                         st.info("💡 此週期內找不到每日的 Total 資料來進行拆解。")
                         
@@ -337,18 +351,18 @@ else:
                         ax3_q.set_xticklabels(players)
                         ax3_q.margins(x=0.05)
                         
-                        # 單節比較保持小級距
-                        max_y_q = df_q['Total Distance (m)'].max()
-                        y_max_q = max(1500, (int(max_y_q) // 500 + 1) * 500) if pd.notna(max_y_q) and max_y_q >= 0 else 1500
-                        ax3_q.set_ylim(0, y_max_q)
+                        ax3_q.set_ylim(0, get_dist_ymax(df_q['Total Distance (m)'].max()))
                         
                         ax3_q.legend(loc='upper right', fontsize='small')
                         st.pyplot(fig3_q)
+                        # 🌟 新增圖表三下載按鈕
+                        st.download_button(label="📥 下載圖表 (體能維持)", data=get_img_buffer(fig3_q), file_name=f"Fitness_Maintenance_{selected_date}.png", mime="image/png")
                     else:
                         st.info("💡 此時段無單節資料或為單日加總資料。")
 
             st.write("<br>", unsafe_allow_html=True)
             st.subheader("4️⃣ 爆發力象限圖 (Plotly 互動版)")
+            st.caption("💡 提示：將滑鼠移至圖表右上角，點擊 **照相機圖示 📷** 即可下載高畫質透明背景 PNG 檔。")
             spacer1, col_center, spacer2 = st.columns([1, 4, 1])
             with col_center:
                 x_data = df_plot['HSD Ratio'] * 100
@@ -356,7 +370,6 @@ else:
                 session_avg_hsd = x_data.mean()
                 session_avg_top = y_data.mean()
                 
-                # 🚨 防呆：如果有位置欄位才加上去
                 plot_text = df_plot['Player'] + " (" + df_plot['Position'] + ")" if 'Position' in df_plot.columns else df_plot['Player']
                 
                 fig4 = go.Figure()
@@ -433,7 +446,6 @@ else:
         if not player_sessions:
             st.warning(f"💡 找不到 {selected_player} 的任何數據。")
         else:
-            # 🚨 防呆機制：若有 Position 則顯示，沒有則省略
             if 'Position' in df.columns:
                 raw_pos = str(df[df['Player'] == selected_player]['Position'].iloc[0])
                 pos_display = f"(註冊位置: {raw_pos} | 長條圖對標: {default_baseline_name})"
@@ -491,6 +503,9 @@ else:
                 ax_r.fill(angles, player_ratios, color='#4a86e8', alpha=0.3)
                 ax_r.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
                 st.pyplot(fig_r)
+                
+                # 🌟 新增雷達圖下載按鈕
+                st.download_button(label="📥 下載雷達圖", data=get_img_buffer(fig_r), file_name=f"{selected_player}_Radar.png", mime="image/png")
 
             with col_bar:
                 st.markdown("##### 📈 歷史進步軌跡")
@@ -552,7 +567,6 @@ else:
                     ('HSD Ratio (%)', 'HSD Ratio', ['#eff5e1', '#d9ead3', '#93c47d'])
                 ]
                 
-                # 🌟 將標籤太長的部分換行，並移除所有累贅的 (當前) (基準) 字眼
                 def format_label(text):
                     if text == "AUS Avg": return text
                     return text.replace(' ', '\n', 1)
@@ -607,3 +621,6 @@ else:
 
                 plt.tight_layout()
                 st.pyplot(fig_b)
+                
+                # 🌟 新增長條圖下載按鈕
+                st.download_button(label="📥 下載長條圖 (歷史進步軌跡)", data=get_img_buffer(fig_b), file_name=f"{selected_player}_History.png", mime="image/png")
