@@ -40,12 +40,12 @@ PLOTLY_CONFIG = {
 }
 
 def apply_chart_style(fig):
-    """統一為所有圖表套用大字體與清晰排版"""
+    """統一為所有圖表套用大字體與清晰排版 (已移除衝突的 weight 參數)"""
     fig.update_layout(
         font=dict(size=GLOBAL_FONT_SIZE, family="Arial, sans-serif"),
         legend=dict(font=dict(size=GLOBAL_FONT_SIZE)),
-        xaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE, weight='bold')),
-        yaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE, weight='bold')),
+        xaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE)),
+        yaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE)),
     )
     # 針對長條圖的數值標籤放大
     fig.update_traces(textfont_size=DATA_LABEL_SIZE, selector=dict(type='bar'))
@@ -300,7 +300,7 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
             fig4 = go.Figure()
             fig4.add_trace(go.Scatter(
                 x=x_data, y=y_data, mode='markers+text', text=df_plot['Player'], textposition="top center",
-                textfont=dict(size=DATA_LABEL_SIZE, color="black", weight="bold"),
+                textfont=dict(size=DATA_LABEL_SIZE, color="black"), # 移除 weight
                 marker=dict(color='#3d85c6', size=14, line=dict(width=1, color='white')), name='Players',
                 hovertemplate='<b>%{text}</b><br>HSD Ratio: %{x:.1f}%<br>Top Speed: %{y:.1f} m/s<extra></extra>'
             ))
@@ -404,7 +404,7 @@ elif page_mode == "👤 個人報告 (Player Profile)":
                         tickfont=dict(size=GLOBAL_FONT_SIZE) # 放大量尺數字
                     ),
                     angularaxis=dict(
-                        tickfont=dict(size=TITLE_FONT_SIZE, weight='bold', color='black') # 放大外圍類別文字
+                        tickfont=dict(size=TITLE_FONT_SIZE, color='black') # 移除 weight
                     )
                 ),
                 margin=dict(l=60, r=60, t=40, b=40), height=450,
@@ -477,7 +477,7 @@ elif page_mode == "👤 個人報告 (Player Profile)":
                 
                 fig_hist.update_yaxes(matches=None, showticklabels=True, title="", tickfont=dict(size=GLOBAL_FONT_SIZE))
                 fig_hist.update_xaxes(title="", showticklabels=False)
-                # 放大子圖的標題 (例如 Total Distance (m))
+                # 放大子圖的標題
                 fig_hist.for_each_annotation(lambda a: a.update(text=f"<b>{a.text.split('=')[-1]}</b>", font=dict(size=TITLE_FONT_SIZE, color="black")))
                 
                 fig_hist.update_layout(margin=dict(t=50, b=20), height=450, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5, font=dict(size=GLOBAL_FONT_SIZE)))
