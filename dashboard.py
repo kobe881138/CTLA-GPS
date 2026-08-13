@@ -40,12 +40,19 @@ PLOTLY_CONFIG = {
 }
 
 def apply_chart_style(fig):
-    """統一為所有圖表套用大字體與清晰排版 (已移除衝突的 weight 參數)"""
+    """統一為所有圖表套用大字體與清晰排版 (修正最新版 Plotly 屬性要求)"""
     fig.update_layout(
         font=dict(size=GLOBAL_FONT_SIZE, family="Arial, sans-serif"),
         legend=dict(font=dict(size=GLOBAL_FONT_SIZE)),
-        xaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE)),
-        yaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE)),
+        # 🌟 修正重點：將舊的 titlefont 改為 title=dict(font=dict(...))
+        xaxis=dict(
+            tickfont=dict(size=GLOBAL_FONT_SIZE), 
+            title=dict(font=dict(size=GLOBAL_FONT_SIZE))
+        ),
+        yaxis=dict(
+            tickfont=dict(size=GLOBAL_FONT_SIZE), 
+            title=dict(font=dict(size=GLOBAL_FONT_SIZE))
+        ),
     )
     # 針對長條圖的數值標籤放大
     fig.update_traces(textfont_size=DATA_LABEL_SIZE, selector=dict(type='bar'))
@@ -300,7 +307,7 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
             fig4 = go.Figure()
             fig4.add_trace(go.Scatter(
                 x=x_data, y=y_data, mode='markers+text', text=df_plot['Player'], textposition="top center",
-                textfont=dict(size=DATA_LABEL_SIZE, color="black"), # 移除 weight
+                textfont=dict(size=DATA_LABEL_SIZE, color="black"),
                 marker=dict(color='#3d85c6', size=14, line=dict(width=1, color='white')), name='Players',
                 hovertemplate='<b>%{text}</b><br>HSD Ratio: %{x:.1f}%<br>Top Speed: %{y:.1f} m/s<extra></extra>'
             ))
@@ -364,7 +371,7 @@ elif page_mode == "👤 個人報告 (Player Profile)":
 
         with col_radar:
             # ------------------------------------------
-            # 📍 鎖定比例的 Z-score 雷達圖 (字體特別優化)
+            # 📍 鎖定比例的 Z-score 雷達圖
             # ------------------------------------------
             st.markdown(f"##### 📍 六角雷達圖：對標團隊平均")
             radar_session = st.selectbox("📅 選擇雷達圖檢視事件：", player_sessions, index=0)
@@ -397,14 +404,14 @@ elif page_mode == "👤 個人報告 (Player Profile)":
             ))
 
             fig_r.update_layout(
-                font=dict(size=GLOBAL_FONT_SIZE), # 放大整體字體
+                font=dict(size=GLOBAL_FONT_SIZE),
                 polar=dict(
                     radialaxis=dict(
                         visible=True, range=[-2, 2], tickvals=[-2, -1, 0, 1, 2], ticktext=['-2', '-1', '0', '1', '2'],
-                        tickfont=dict(size=GLOBAL_FONT_SIZE) # 放大量尺數字
+                        tickfont=dict(size=GLOBAL_FONT_SIZE)
                     ),
                     angularaxis=dict(
-                        tickfont=dict(size=TITLE_FONT_SIZE, color='black') # 移除 weight
+                        tickfont=dict(size=TITLE_FONT_SIZE, color='black')
                     )
                 ),
                 margin=dict(l=60, r=60, t=40, b=40), height=450,
@@ -414,7 +421,7 @@ elif page_mode == "👤 個人報告 (Player Profile)":
 
         with col_bar:
             # ------------------------------------------
-            # 📈 歷史進步軌跡 (子圖字體優化)
+            # 📈 歷史進步軌跡
             # ------------------------------------------
             st.markdown("##### 📈 歷史進步軌跡")
             compare_mode = st.radio("📊 選擇比較模式：", ["雙期比較 (2個數據)", "三期比較 (3個數據)"], horizontal=True)
@@ -477,10 +484,8 @@ elif page_mode == "👤 個人報告 (Player Profile)":
                 
                 fig_hist.update_yaxes(matches=None, showticklabels=True, title="", tickfont=dict(size=GLOBAL_FONT_SIZE))
                 fig_hist.update_xaxes(title="", showticklabels=False)
-                # 放大子圖的標題
                 fig_hist.for_each_annotation(lambda a: a.update(text=f"<b>{a.text.split('=')[-1]}</b>", font=dict(size=TITLE_FONT_SIZE, color="black")))
                 
                 fig_hist.update_layout(margin=dict(t=50, b=20), height=450, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5, font=dict(size=GLOBAL_FONT_SIZE)))
-                # 放大数据標籤
                 fig_hist.update_traces(textfont_size=DATA_LABEL_SIZE, textfont_color="black")
                 st.plotly_chart(fig_hist, use_container_width=True, config=PLOTLY_CONFIG)
