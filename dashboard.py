@@ -25,16 +25,31 @@ AUS_BASELINES = {
 default_baseline_name = list(AUS_BASELINES.keys())[0]
 default_baseline_data = AUS_BASELINES[default_baseline_name]
 
-# 🌟 統一的 Plotly 下載設定 (高畫質 300 DPI 級別)
-# 只要套用此 config，滑鼠移到圖表右上角點擊相機，就能下載完美比例的 PNG 供 Report 使用
+# 🌟 全局字體與圖表外觀設定中心 (可隨時調整大小)
+GLOBAL_FONT_SIZE = 16       # 座標軸、圖例的字體大小
+DATA_LABEL_SIZE = 18        # 長條圖上的數字大小
+TITLE_FONT_SIZE = 20        # 圖表標題/子標題字體大小
+
 PLOTLY_CONFIG = {
     'displayModeBar': True,
     'toImageButtonOptions': {
         'format': 'png', 
         'filename': 'Lacrosse_GPS_Chart', 
-        'scale': 3  # 放大倍率，確保放入簡報不模糊
+        'scale': 3  # 高畫質 300 DPI
     }
 }
+
+def apply_chart_style(fig):
+    """統一為所有圖表套用大字體與清晰排版"""
+    fig.update_layout(
+        font=dict(size=GLOBAL_FONT_SIZE, family="Arial, sans-serif"),
+        legend=dict(font=dict(size=GLOBAL_FONT_SIZE)),
+        xaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE, weight='bold')),
+        yaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), titlefont=dict(size=GLOBAL_FONT_SIZE, weight='bold')),
+    )
+    # 針對長條圖的數值標籤放大
+    fig.update_traces(textfont_size=DATA_LABEL_SIZE, selector=dict(type='bar'))
+    return fig
 
 # ==========================================
 # 🌟 資料載入與清理模組
@@ -51,11 +66,9 @@ if df is None:
     st.error("❌ 找不到資料！請確認 Cleaned_GPS_Data.csv 是否存在。")
     st.stop()
 
-# 欄位標準化
 if 'Zone 4 Ratio' in df.columns: df.rename(columns={'Zone 4 Ratio': 'HSD Ratio'}, inplace=True)
 if 'Zone 4 Distance (m)' in df.columns: df.rename(columns={'Zone 4 Distance (m)': 'HSD (m)'}, inplace=True)
 
-# 排除無效球員並萃取日期特徵
 df = df[~df['Player'].astype(str).str.contains('#')].copy()
 df['Date'] = df['Session'].astype(str).apply(lambda x: x.split()[0])
 
@@ -162,7 +175,7 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
         df_plot = df_filtered.groupby('Player').agg(agg_dict).reset_index()
 
         # ------------------------------------------
-        # 1️⃣ 外部與內部負荷 (總距離 + RPE)
+        # 1️⃣ 外部與內部負荷
         # ------------------------------------------
         st.subheader(f"1️⃣ {selected_session} 外部與內部負荷")
         fig1 = go.Figure()
@@ -171,27 +184,23 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
         display_text = df_plot.apply(lambda row: f"{row['Total Distance (m)']:.0f}<br>(RPE: {row['RPE']})" if 'RPE' in row and pd.notna(row['RPE']) else f"{row['Total Distance (m)']:.0f}", axis=1)
 
         fig1.add_trace(go.Bar(
-            x=df_plot['Player'], 
-            y=df_plot['Total Distance (m)'],
-            text=display_text,
-            textposition='auto',
-            hoverinfo='text',
-            hovertext=hover_text,
-            marker_color='#4a86e8',
-            name='Total Distance'
+            x=df_plot['Player'], y=df_plot['Total Distance (m)'],
+            text=display_text, textposition='auto', hoverinfo='text', hovertext=hover_text,
+            marker_color='#4a86e8', name='Total Distance'
         ))
         
         team_avg_dist = df_plot['Total Distance (m)'].mean()
         if pd.notna(team_avg_dist):
-            fig1.add_hline(y=team_avg_dist, line_dash="dash", line_color="#e06666", annotation_text="Team Avg", annotation_position="top right")
+            fig1.add_hline(y=team_avg_dist, line_dash="dash", line_color="#e06666", annotation_text="Team Avg", annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
             
-        fig1.update_layout(yaxis_title="Total Distance (m)", margin=dict(t=20, b=20), height=400)
+        fig1.update_layout(yaxis_title="<b>Total Distance (m)</b>", margin=dict(t=20, b=20), height=450)
+        fig1 = apply_chart_style(fig1)
         st.plotly_chart(fig1, use_container_width=True, config=PLOTLY_CONFIG)
 
         col1, col2 = st.columns(2)
         with col1:
             # ------------------------------------------
-            # 2️⃣ 平均速度表現 (vs. Australia)
+            # 2️⃣ 平均速度表現
             # ------------------------------------------
             st.subheader("2️⃣ 平均速度表現")
             spd_mode = st.radio("顯示模式：", ["📌 當前時段", "📅 多日比較 (最多5天)"], horizontal=True, key='spd_mode')
@@ -199,20 +208,18 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
             if spd_mode == "📌 當前時段":
                 fig2 = go.Figure()
                 fig2.add_trace(go.Bar(
-                    x=df_plot['Player'], 
-                    y=df_plot['Avg Speed (m/min)'],
-                    text=df_plot['Avg Speed (m/min)'].round(1),
-                    textposition='auto',
-                    marker_color='#8e7cc3',
-                    name='Avg Speed'
+                    x=df_plot['Player'], y=df_plot['Avg Speed (m/min)'],
+                    text=df_plot['Avg Speed (m/min)'].round(1), textposition='auto',
+                    marker_color='#8e7cc3', name='Avg Speed'
                 ))
-                fig2.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL", annotation_position="top right")
+                fig2.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL", annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
                 
                 team_avg_spd = df_plot['Avg Speed (m/min)'].mean()
                 if pd.notna(team_avg_spd):
-                    fig2.add_hline(y=team_avg_spd, line_dash="dash", line_color="red", opacity=0.5, annotation_text="Team Avg")
+                    fig2.add_hline(y=team_avg_spd, line_dash="dash", line_color="red", opacity=0.5, annotation_text="Team Avg", annotation_font_size=GLOBAL_FONT_SIZE)
                     
-                fig2.update_layout(yaxis_title="Avg Speed (m/min)", margin=dict(t=20, b=20), height=400)
+                fig2.update_layout(yaxis_title="<b>Avg Speed (m/min)</b>", margin=dict(t=20, b=20), height=450)
+                fig2 = apply_chart_style(fig2)
                 st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
                 
             else:
@@ -224,8 +231,9 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
                     df_spd = df[(df['Date'].isin(selected_spd_dates)) & (df['Session'].astype(str).str.contains('Total|total', case=False, na=False))]
                     if not df_spd.empty:
                         fig2_multi = px.bar(df_spd, x='Player', y='Avg Speed (m/min)', color='Date', barmode='group', text_auto='.1f', color_discrete_sequence=px.colors.qualitative.Pastel)
-                        fig2_multi.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL")
-                        fig2_multi.update_layout(margin=dict(t=20, b=20), height=400)
+                        fig2_multi.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL", annotation_font_size=GLOBAL_FONT_SIZE)
+                        fig2_multi.update_layout(yaxis_title="<b>Avg Speed (m/min)</b>", margin=dict(t=20, b=20), height=450)
+                        fig2_multi = apply_chart_style(fig2_multi)
                         st.plotly_chart(fig2_multi, use_container_width=True, config=PLOTLY_CONFIG)
                     else:
                         st.info("💡 找不到所選日期的 Total 數據來進行比較。")
@@ -239,45 +247,40 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
             is_custom_or_auto = selected_date in custom_and_auto_names
             if is_custom_or_auto:
                 st.subheader(f"3️⃣ {selected_date} 每日負荷消長")
-                if selected_date in st.session_state['custom_periods']:
-                    target_dates = st.session_state['custom_periods'][selected_date]
-                elif selected_date == 'Q1 (1-3月)':
-                    target_dates = df[df['Month'].isin([1, 2, 3])]['Date'].unique().tolist()
+                if selected_date in st.session_state['custom_periods']: target_dates = st.session_state['custom_periods'][selected_date]
+                elif selected_date == 'Q1 (1-3月)': target_dates = df[df['Month'].isin([1, 2, 3])]['Date'].unique().tolist()
                 elif '月份' in selected_date:
                     m = int(selected_date.replace('月份', ''))
                     target_dates = df[df['Month'] == m]['Date'].unique().tolist()
-                else:
-                    target_dates = []
+                else: target_dates = []
                     
                 target_dates = [d for d in target_dates if d not in custom_and_auto_names and '/' in str(d)]
                 df_q = df[(df['Date'].isin(target_dates)) & (df['Session'].astype(str).str.contains('Total|total', case=False, na=False))]
                 
                 if not df_q.empty:
-                    fig3_q = px.bar(df_q, x='Player', y='Total Distance (m)', color='Date', barmode='group', color_discrete_sequence=px.colors.qualitative.Safe)
+                    fig3_q = px.bar(df_q, x='Player', y='Total Distance (m)', color='Date', barmode='group', text_auto='.0f', color_discrete_sequence=px.colors.qualitative.Safe)
                     team_avg_q_dist = df_q['Total Distance (m)'].mean()
                     if pd.notna(team_avg_q_dist):
-                        fig3_q.add_hline(y=team_avg_q_dist, line_dash="dash", line_color="#e06666", annotation_text="Period Daily Avg")
-                    fig3_q.update_layout(margin=dict(t=20, b=20), height=400)
+                        fig3_q.add_hline(y=team_avg_q_dist, line_dash="dash", line_color="#e06666", annotation_text="Period Daily Avg", annotation_font_size=GLOBAL_FONT_SIZE)
+                    fig3_q.update_layout(yaxis_title="<b>Total Distance (m)</b>", margin=dict(t=20, b=20), height=450)
+                    fig3_q = apply_chart_style(fig3_q)
                     st.plotly_chart(fig3_q, use_container_width=True, config=PLOTLY_CONFIG)
                 else:
-                    st.info("💡 此週期內找不到每日的 Total 資料來進行拆解。")
+                    st.info("💡 此週期內找不到每日的 Total 資料。")
             else:
                 st.subheader("3️⃣ 單節/分段 體能維持率")
                 is_training = 'training' in selected_session.lower()
-                if is_training:
-                    quarter_sessions = [s for s in sessions_for_date if 'training' in str(s).lower() and str(s).split()[-1].isdigit()]
-                else:
-                    quarter_sessions = [s for s in sessions_for_date if 'training' not in str(s).lower() and str(s).split()[-1].isdigit()]
-
+                quarter_sessions = [s for s in sessions_for_date if ('training' in str(s).lower()) == is_training and str(s).split()[-1].isdigit()]
                 quarter_sessions = sorted(quarter_sessions)
 
                 if len(quarter_sessions) > 0:
                     df_q = df[df['Session'].isin(quarter_sessions)]
-                    fig3_q = px.bar(df_q, x='Player', y='Total Distance (m)', color='Session', barmode='group', color_discrete_sequence=px.colors.qualitative.Safe)
+                    fig3_q = px.bar(df_q, x='Player', y='Total Distance (m)', color='Session', barmode='group', text_auto='.0f', color_discrete_sequence=px.colors.qualitative.Safe)
                     team_avg_q_dist = df_q['Total Distance (m)'].mean()
                     if pd.notna(team_avg_q_dist):
-                        fig3_q.add_hline(y=team_avg_q_dist, line_dash="dash", line_color="#e06666", annotation_text="Session Avg")
-                    fig3_q.update_layout(margin=dict(t=20, b=20), height=400)
+                        fig3_q.add_hline(y=team_avg_q_dist, line_dash="dash", line_color="#e06666", annotation_text="Session Avg", annotation_font_size=GLOBAL_FONT_SIZE)
+                    fig3_q.update_layout(yaxis_title="<b>Total Distance (m)</b>", margin=dict(t=20, b=20), height=450)
+                    fig3_q = apply_chart_style(fig3_q)
                     st.plotly_chart(fig3_q, use_container_width=True, config=PLOTLY_CONFIG)
                 else:
                     st.info("💡 此時段無單節資料或為單日加總資料。")
@@ -295,36 +298,34 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
             session_avg_top = y_data.mean()
             
             fig4 = go.Figure()
-            # 球員數據點
             fig4.add_trace(go.Scatter(
-                x=x_data, y=y_data, mode='markers+text',
-                text=df_plot['Player'], textposition="top center",
-                marker=dict(color='#3d85c6', size=12, line=dict(width=1, color='white')), name='Players',
+                x=x_data, y=y_data, mode='markers+text', text=df_plot['Player'], textposition="top center",
+                textfont=dict(size=DATA_LABEL_SIZE, color="black", weight="bold"),
+                marker=dict(color='#3d85c6', size=14, line=dict(width=1, color='white')), name='Players',
                 hovertemplate='<b>%{text}</b><br>HSD Ratio: %{x:.1f}%<br>Top Speed: %{y:.1f} m/s<extra></extra>'
             ))
 
-            # 團隊平均線與點
             if pd.notna(session_avg_hsd) and pd.notna(session_avg_top):
                 fig4.add_trace(go.Scatter(
                     x=[session_avg_hsd], y=[session_avg_top], mode='markers',
-                    marker=dict(color='#38761d', symbol='cross', size=14), name='Team Avg',
+                    marker=dict(color='#38761d', symbol='cross', size=16), name='Team Avg',
                     hovertemplate='<b>團隊平均</b><br>HSD Ratio: %{x:.1f}%<br>Top Speed: %{y:.1f} m/s<extra></extra>'
                 ))
                 fig4.add_vline(x=session_avg_hsd, line_dash="dash", line_color="#38761d", opacity=0.5)
                 fig4.add_hline(y=session_avg_top, line_dash="dash", line_color="#38761d", opacity=0.5)
 
-            # 澳洲隊標竿
             fig4.add_trace(go.Scatter(
                 x=[AUS_HSD_RATIO], y=[AUS_TOP_SPEED], mode='markers',
-                marker=dict(color='red', symbol='star', size=18, line=dict(width=1, color='darkgray')), name=default_baseline_name,
+                marker=dict(color='red', symbol='star', size=20, line=dict(width=1, color='darkgray')), name=default_baseline_name,
                 hovertemplate=f'<b>{default_baseline_name}</b><br>HSD Ratio: %{{x:.1f}}%<br>Top Speed: %{{y:.1f}} m/s<extra></extra>'
             ))
 
             fig4.update_layout(
                 xaxis_title='<b>HSD Ratio (%)</b>', yaxis_title='<b>Top Speed (m/s)</b>',
-                margin=dict(l=20, r=20, t=30, b=20), hovermode='closest',
+                margin=dict(l=20, r=20, t=30, b=20), hovermode='closest', height=500,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
+            fig4 = apply_chart_style(fig4)
             st.plotly_chart(fig4, use_container_width=True, config=PLOTLY_CONFIG)
             
     else:
@@ -363,7 +364,7 @@ elif page_mode == "👤 個人報告 (Player Profile)":
 
         with col_radar:
             # ------------------------------------------
-            # 📍 鎖定比例的 Z-score 雷達圖
+            # 📍 鎖定比例的 Z-score 雷達圖 (字體特別優化)
             # ------------------------------------------
             st.markdown(f"##### 📍 六角雷達圖：對標團隊平均")
             radar_session = st.selectbox("📅 選擇雷達圖檢視事件：", player_sessions, index=0)
@@ -378,48 +379,45 @@ elif page_mode == "👤 個人報告 (Player Profile)":
             def calc_z(col):
                 if pd.isna(player_radar[col]) or pd.isna(team_mean[col]): return 0
                 z = (player_radar[col] - team_mean[col]) / team_std[col]
-                return np.clip(z, -2, 2) # 強制收攏在 -2 到 2 之間
+                return np.clip(z, -2, 2)
                 
             player_ratios = [calc_z('Total Distance (m)'), calc_z('Avg Speed (m/min)'), calc_z('Top Speed (m/s)'), calc_z('HSD Ratio')]
-            
-            # 首尾相連以閉合雷達圖
             player_ratios += [player_ratios[0]]
             team_ratios = [0, 0, 0, 0, 0]
             categories_plot = categories + [categories[0]]
 
             fig_r = go.Figure()
             fig_r.add_trace(go.Scatterpolar(
-                r=team_ratios, theta=categories_plot,
-                fill='toself', name=f'{radar_session} Team Avg (0)',
+                r=team_ratios, theta=categories_plot, fill='toself', name=f'{radar_session} Team Avg (0)',
                 line_color='#e06666', opacity=0.8
             ))
             fig_r.add_trace(go.Scatterpolar(
-                r=player_ratios, theta=categories_plot,
-                fill='toself', name=selected_player,
+                r=player_ratios, theta=categories_plot, fill='toself', name=selected_player,
                 line_color='#4a86e8', fillcolor='rgba(74, 134, 232, 0.4)'
             ))
 
             fig_r.update_layout(
+                font=dict(size=GLOBAL_FONT_SIZE), # 放大整體字體
                 polar=dict(
                     radialaxis=dict(
-                        visible=True,
-                        range=[-2, 2],         # 核心邏輯：鎖定比例
-                        tickvals=[-2, -1, 0, 1, 2],
-                        ticktext=['-2', '-1', '0', '1', '2']
+                        visible=True, range=[-2, 2], tickvals=[-2, -1, 0, 1, 2], ticktext=['-2', '-1', '0', '1', '2'],
+                        tickfont=dict(size=GLOBAL_FONT_SIZE) # 放大量尺數字
+                    ),
+                    angularaxis=dict(
+                        tickfont=dict(size=TITLE_FONT_SIZE, weight='bold', color='black') # 放大外圍類別文字
                     )
                 ),
-                margin=dict(l=40, r=40, t=20, b=20),
-                legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+                margin=dict(l=60, r=60, t=40, b=40), height=450,
+                legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5, font=dict(size=GLOBAL_FONT_SIZE))
             )
             st.plotly_chart(fig_r, use_container_width=True, config=PLOTLY_CONFIG)
 
         with col_bar:
             # ------------------------------------------
-            # 📈 歷史進步軌跡 (Plotly 群組長條圖)
+            # 📈 歷史進步軌跡 (子圖字體優化)
             # ------------------------------------------
             st.markdown("##### 📈 歷史進步軌跡")
             compare_mode = st.radio("📊 選擇比較模式：", ["雙期比較 (2個數據)", "三期比較 (3個數據)"], horizontal=True)
-            
             baseline_options = [default_baseline_name] + all_sessions
             
             if compare_mode == "雙期比較 (2個數據)":
@@ -441,30 +439,19 @@ elif page_mode == "👤 個人報告 (Player Profile)":
                 if b_name == default_baseline_name:
                     target = default_baseline_data
                     return {
-                        'Total Distance (m)': target['dist'],
-                        'Avg Speed (m/min)': target['avg_spd'],
-                        'Top Speed (m/s)': target['top_spd'],
-                        'HSD Ratio': target['hsd_ratio'] / 100 
+                        'Total Distance (m)': target['dist'], 'Avg Speed (m/min)': target['avg_spd'],
+                        'Top Speed (m/s)': target['top_spd'], 'HSD Ratio': target['hsd_ratio'] / 100 
                     }, "AUS Avg"
                 else:
                     past_data = df[(df['Player'] == selected_player) & (df['Session'] == b_name)]
-                    if not past_data.empty:
-                        return past_data[['Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio']].mean(), b_name
+                    if not past_data.empty: return past_data[['Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio']].mean(), b_name
                     return None, b_name
 
             b1_data, b1_label = get_baseline_data(selected_baseline1)
             b2_data, b2_label = None, None
-            if selected_baseline2:
-                b2_data, b2_label = get_baseline_data(selected_baseline2)
+            if selected_baseline2: b2_data, b2_label = get_baseline_data(selected_baseline2)
 
-            warnings = []
-            if b1_data is None: warnings.append(f"💡 貼心提醒：{selected_player} 在 {selected_baseline1} 沒有紀錄。")
-            if selected_baseline2 and b2_data is None: warnings.append(f"💡 貼心提醒：{selected_player} 在 {selected_baseline2} 沒有紀錄。")
-            for w in warnings: st.info(w)
-
-            # 構建 Plotly 繪圖用的 DataFrame
             hist_records = []
-            
             def add_record(data_source, label_name):
                 if data_source is not None:
                     hist_records.append({
@@ -481,19 +468,19 @@ elif page_mode == "👤 個人報告 (Player Profile)":
             
             if hist_records:
                 df_hist = pd.DataFrame(hist_records)
-                # 將寬表轉為長表，方便 Plotly 使用 barmode='group' 繪圖
                 df_hist_melted = df_hist.melt(id_vars=['Period'], value_vars=['Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio (%)'], var_name='Metric', value_name='Value')
                 
-                # 使用 facet_col 建立四個並排的小圖表 (Subplots)
                 fig_hist = px.bar(
                     df_hist_melted, x='Period', y='Value', color='Period', facet_col='Metric', 
                     text_auto='.1f', color_discrete_sequence=px.colors.qualitative.Pastel
                 )
                 
-                # 隱藏子圖的 X 軸與 Y 軸標題以求簡潔，並允許 Y 軸自動獨立縮放
-                fig_hist.update_yaxes(matches=None, showticklabels=True, title="")
+                fig_hist.update_yaxes(matches=None, showticklabels=True, title="", tickfont=dict(size=GLOBAL_FONT_SIZE))
                 fig_hist.update_xaxes(title="", showticklabels=False)
-                fig_hist.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+                # 放大子圖的標題 (例如 Total Distance (m))
+                fig_hist.for_each_annotation(lambda a: a.update(text=f"<b>{a.text.split('=')[-1]}</b>", font=dict(size=TITLE_FONT_SIZE, color="black")))
                 
-                fig_hist.update_layout(margin=dict(t=30, b=20), height=400, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                fig_hist.update_layout(margin=dict(t=50, b=20), height=450, showlegend=True, legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5, font=dict(size=GLOBAL_FONT_SIZE)))
+                # 放大数据標籤
+                fig_hist.update_traces(textfont_size=DATA_LABEL_SIZE, textfont_color="black")
                 st.plotly_chart(fig_hist, use_container_width=True, config=PLOTLY_CONFIG)
