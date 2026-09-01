@@ -260,34 +260,71 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
                     st.plotly_chart(fig3_q, use_container_width=True, config=PLOTLY_CONFIG)
                 else: st.info("💡 此時段為單日加總資料，無獨立 Drill。")
 
-            # ==========================================
-            # ⚡ 隱藏版新功能：高強度衝刺密度 (Intensity Density)
-            # ==========================================
-            if not df_q.empty:
-                st.write("") 
-                show_density = st.toggle("⚡ 顯示各節/各科目高強度衝刺密度 (HSD m/min)")
-                if show_density:
-                    st.subheader("4️⃣ 單節/單一科目 衝刺密度 (Intensity Density)")
-                    
-                    df_q_density = df_q.copy()
-                    # 💡 物理學降維打擊：透過 HSD Ratio 與 Avg Speed 反推密度，免除時間欄位需求！
-                    df_q_density['HSD Density (m/min)'] = df_q_density['Avg Speed (m/min)'] * df_q_density['HSD Ratio']
-                    
-                    fig4_q = px.bar(
-                        df_q_density, x='Player', y='HSD Density (m/min)', color=color_col, 
-                        barmode='group', text_auto='.1f', color_discrete_sequence=px.colors.qualitative.Vivid
-                    )
-                    
-                    team_avg_q_density = df_q_density['HSD Density (m/min)'].mean()
-                    if pd.notna(team_avg_q_density): 
-                        fig4_q.add_hline(y=team_avg_q_density, line_dash="dash", line_color="#e06666", annotation_text="Density Avg", annotation_font_size=GLOBAL_FONT_SIZE)
-                    
-                    fig4_q.update_layout(yaxis_title="<b>HSD m/min</b>", margin=dict(t=20, b=20), height=450)
-                    fig4_q = apply_chart_style(fig4_q)
-                    st.plotly_chart(fig4_q, use_container_width=True, config=PLOTLY_CONFIG)
+        # ==========================================
+        # ⚡ 全新功能：高強度熱力矩陣 (Intensity Heatmap)
+        # ==========================================
+        if not df_q.empty:
+            st.write("<br>", unsafe_allow_html=True)
+            st.subheader("4️⃣ 訓練特徵熱力圖矩陣 (Heatmap Matrix)")
+            
+            # 雙邏輯切換器
+            heatmap_metric = st.radio(
+                "請選擇熱力圖色彩權重：", 
+                ["⚡ 檢視 衝刺密度 (HSD m/min) - 關注絕對無氧消耗", "📊 檢視 HSD 佔比 (%) - 關注爆發力跑動特徵"], 
+                horizontal=True
+            )
+            
+            df_hm = df_q.copy()
+            # 💡 物理學數學外掛：直接用 HSD Ratio * Avg Speed 換算出每分鐘衝刺距離
+            df_hm['HSD Density (m/min)'] = df_hm['Avg Speed (m/min)'] * df_hm['HSD Ratio']
+            df_hm['HSD Ratio (%)'] = df_hm['HSD Ratio'] * 100
+            
+            if "密度" in heatmap_metric:
+                val_col = 'HSD Density (m/min)'
+                color_scale = 'OrRd'  # 白-橘-紅 (代表高壓)
+                # 設定天花板為 μ + 2σ
+                z_mean = df_hm[val_col].mean()
+                z_std = df_hm[val_col].std()
+                z_max = z_mean + 2 * z_std if pd.notna(z_std) and z_std > 0 else df_hm[val_col].max()
+            else:
+                val_col = 'HSD Ratio (%)'
+                color_scale = 'YlGnBu' # 黃-綠-藍 (代表特徵分佈)
+                # 設定天花板為 Daily Max
+                z_max = df_hm[val_col].max()
+                
+            if pd.isna(z_max): z_max = 1  # 避免全零報錯
+
+            # 轉置為熱力圖矩陣 (Y軸=選手, X軸=科目)
+            pivot_df = df_hm.pivot_table(index='Player', columns=color_col, values=val_col, aggfunc='max')
+            pivot_df = pivot_df.sort_index() 
+            
+            fig4 = go.Figure(data=go.Heatmap(
+                z=pivot_df.values,
+                x=pivot_df.columns,
+                y=pivot_df.index,
+                colorscale=color_scale,
+                zmin=0,
+                zmax=z_max,
+                text=np.round(pivot_df.values, 1),
+                texttemplate="%{text}",
+                textfont={"size": DATA_LABEL_SIZE},
+                hoverongaps=False,
+                hovertemplate="Player: %{y}<br>Session: %{x}<br>Value: %{z:.1f}<extra></extra>"
+            ))
+            
+            # 動態調整高度，避免選手過多時擠在一起
+            dynamic_height = max(350, len(pivot_df.index) * 45 + 100)
+            
+            fig4.update_layout(
+                xaxis_title=f"<b>{color_col}</b>",
+                yaxis_title="<b>Player</b>",
+                margin=dict(t=20, b=20),
+                height=dynamic_height
+            )
+            fig4 = apply_chart_style(fig4)
+            st.plotly_chart(fig4, use_container_width=True, config=PLOTLY_CONFIG)
 
         st.write("<br>", unsafe_allow_html=True)
-        # 散佈圖順延為圖 5
         st.subheader("5️⃣ 爆發力象限圖")
         spacer1, col_center, spacer2 = st.columns([1, 4, 1])
         with col_center:
