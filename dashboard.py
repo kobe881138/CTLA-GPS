@@ -236,6 +236,7 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
 elif page_mode == "📈 2. Post Event (賽後進步診斷)":
     st.title("🥍 Post Event Report - 進步與實戰診斷書")
     
+    # 抓取所有實際包含 '/' 的單日日期，並照月份/日期排序
     actual_dates = [d for d in df['Date'].unique() if '/' in str(d)]
     actual_dates = sorted(actual_dates, key=lambda x: (int(x.split('/')[0]), int(x.split('/')[1])))
 
@@ -245,7 +246,10 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
 
     st.sidebar.header("🎯 診斷設定")
     all_players = sorted(df['Player'].unique().tolist())
-    target_players = st.sidebar.multiselect("1. 選擇教練點名的目標選手 (Target Players)：", all_players, default=all_players[:2] if len(all_players)>1 else all_players)
+    target_players = st.sidebar.multiselect("1. 選擇目標選手 (Target Players)：", all_players, default=all_players[:2] if len(all_players)>1 else all_players)
+    
+    default_trend_dates = actual_dates[-5:] if len(actual_dates) >= 5 else actual_dates
+    selected_trend_dates = st.sidebar.multiselect("2. 選擇趨勢圖要顯示的日期：", actual_dates, default=default_trend_dates)
     
     st.sidebar.markdown("---")
     st.sidebar.markdown("**🏆 突破榜單設定**")
@@ -266,21 +270,24 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
 
     if not target_players:
         st.info("請從左側面板選擇 Target Players。")
+    elif not selected_trend_dates:
+        st.warning("請至少選擇一個日期來繪製趨勢圖。")
     else:
+        # 確保使用者選取的日期能按照時間先後排序
+        sorted_trend_dates = sorted(selected_trend_dates, key=lambda x: (int(x.split('/')[0]), int(x.split('/')[1])))
+        
         for player in target_players:
             p_df = df[df['Player'] == player]
             p_stats = []
             
-            for d in actual_dates:
+            for d in sorted_trend_dates:
                 d_df = p_df[p_df['Date'] == d]
                 total_sessions = d_df[d_df['Session'].astype(str).str.contains('Total', case=False)]
                 drill_sessions = d_df[~d_df['Session'].astype(str).str.contains('Total', case=False)]
                 
-                # 左軸：計算總距離
                 if not total_sessions.empty: tot_dist = total_sessions['Total Distance (m)'].sum()
                 else: tot_dist = drill_sessions['Total Distance (m)'].sum() if not drill_sessions.empty else 0
                 
-                # 右軸：抓取對應指標的最大值
                 peak_val = 0
                 if not drill_sessions.empty:
                     if progression_metric == "HSD per min":
@@ -296,17 +303,13 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
             if p_stats:
                 p_stat_df = pd.DataFrame(p_stats)
                 
-                # 繪製 Plotly 雙軸圖
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
-                
-                # 藍色長條圖 (左軸)
                 fig.add_trace(go.Bar(
                     x=p_stat_df['Date'], y=p_stat_df['Distance'], 
                     name="Distance (m)", marker_color="#4a86e8", 
                     text=p_stat_df['Distance'].astype(int), textposition='inside', opacity=0.7
                 ), secondary_y=False)
                 
-                # 橘色折線圖 (右軸)
                 fig.add_trace(go.Scatter(
                     x=p_stat_df['Date'], y=p_stat_df['Target Metric'], 
                     name=progression_metric, mode="lines+markers+text", 
@@ -329,7 +332,6 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
 
     st.write("---")
     
-    # 🌟 確保排版欄位在這裡被正確建立 (這就是報錯的原因)
     col2_1, col2_2 = st.columns(2)
     
     # ------------------------------------------
@@ -344,14 +346,20 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
             game_trend['Date'] = pd.Categorical(game_trend['Date'], categories=actual_dates, ordered=True)
             game_trend = game_trend.dropna().sort_values('Date')
             
-            fig_game = go.Figure()
-            fig_game.add_trace(go.Bar(
-                x=game_trend['Date'], y=game_trend['HSD Density (m/min)'], 
-                text=game_trend['HSD Density (m/min)'].round(2), textposition='auto', marker_color='#27ae60'
-            ))
-            fig_game.update_layout(title=dict(text="<b>全隊平均實戰衝刺密度 (HSD per min)</b>"), yaxis_title="<b>HSD per min</b>", height=400, margin=dict(t=40, b=20))
-            fig_game = apply_chart_style(fig_game)
-            st.plotly_chart(fig_game, use_container_width=True, config=PLOTLY_CONFIG)
+            if selected_trend_dates:
+                game_trend = game_trend[game_trend['Date'].isin(selected_trend_dates)]
+            
+            if not game_trend.empty:
+                fig_game = go.Figure()
+                fig_game.add_trace(go.Bar(
+                    x=game_trend['Date'], y=game_trend['HSD Density (m/min)'], 
+                    text=game_trend['HSD Density (m/min)'].round(2), textposition='auto', marker_color='#27ae60'
+                ))
+                fig_game.update_layout(title=dict(text="<b>全隊平均實戰衝刺密度 (HSD per min)</b>"), yaxis_title="<b>HSD per min</b>", height=400, margin=dict(t=40, b=20))
+                fig_game = apply_chart_style(fig_game)
+                st.plotly_chart(fig_game, use_container_width=True, config=PLOTLY_CONFIG)
+            else:
+                st.info("您選取的日期區間內，沒有進行 Game 或 Scrimmage 實戰。")
         else:
             st.info("歷史資料中找不到包含 'Game' 或 'Scrimmage' 的科目。")
 
