@@ -261,9 +261,13 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
     # 模組一：雙軌趨勢圖 (Dual-Axis Progression)
     # ------------------------------------------
     st.subheader("📊 模組一：目標選手進步追蹤 (Loading vs Progression)")
-    st.caption("💡 長條圖 (左軸)：當日總跑動負荷 (Total Distance) | 折線圖 (右軸)：當日訓練中最極限的峰值輸出 (Peak Output)")
     
-    progression_metric = st.radio("選擇前景折線圖 (Progression) 要追蹤的無氧指標：", ["⚡ Peak HSD Density (最高衝刺密度)", "🏃 Peak Top Speed (最高極速)"], horizontal=True)
+    # 🌟 乾淨俐落的選項，拔除所有冗長單字
+    progression_metric = st.radio(
+        "選擇右軸 (折線圖) 要顯示的指標：", 
+        ["HSD per min", "HSD ratio", "Max Speed"], 
+        horizontal=True
+    )
 
     if not target_players:
         st.info("請從左側面板選擇 Target Players。")
@@ -277,36 +281,57 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
                 total_sessions = d_df[d_df['Session'].astype(str).str.contains('Total', case=False)]
                 drill_sessions = d_df[~d_df['Session'].astype(str).str.contains('Total', case=False)]
                 
-                # Loading: 當日加總或擷取 Total 欄位
+                # 左軸：計算總距離
                 if not total_sessions.empty: tot_dist = total_sessions['Total Distance (m)'].sum()
                 else: tot_dist = drill_sessions['Total Distance (m)'].sum() if not drill_sessions.empty else 0
                 
-                # Progression: 排除 Total，抓取單一科目最高峰值
+                # 右軸：根據乾淨的選項，抓取對應指標的最大值
                 peak_val = 0
                 if not drill_sessions.empty:
-                    if "Density" in progression_metric: peak_val = drill_sessions['HSD Density (m/min)'].max()
-                    else: peak_val = drill_sessions['Top Speed (m/s)'].max()
+                    if progression_metric == "HSD per min":
+                        peak_val = drill_sessions['HSD Density (m/min)'].max()
+                    elif progression_metric == "HSD ratio":
+                        peak_val = drill_sessions['HSD Ratio (%)'].max()
+                    elif progression_metric == "Max Speed":
+                        peak_val = drill_sessions['Top Speed (m/s)'].max()
                 
                 if tot_dist > 0 or peak_val > 0:
-                    p_stats.append({'Date': d, 'Total Distance': tot_dist, 'Peak Value': peak_val})
+                    p_stats.append({'Date': d, 'Distance': tot_dist, 'Target Metric': peak_val})
                     
             if p_stats:
                 p_stat_df = pd.DataFrame(p_stats)
                 
                 # 繪製 Plotly 雙軸圖
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
-                fig.add_trace(go.Bar(x=p_stat_df['Date'], y=p_stat_df['Total Distance'], name="Total Load (m)", marker_color="#4a86e8", text=p_stat_df['Total Distance'].astype(int), textposition='inside', opacity=0.7), secondary_y=False)
-                fig.add_trace(go.Scatter(x=p_stat_df['Date'], y=p_stat_df['Peak Value'], name="Peak Output", mode="lines+markers+text", line=dict(color="#d35400", width=4), marker=dict(size=12, symbol="diamond"), text=p_stat_df['Peak Value'].round(1), textposition="top center", textfont=dict(color="#d35400", size=DATA_LABEL_SIZE)), secondary_y=True)
                 
-                fig.update_layout(title=dict(text=f"<b>{player} 的雙軌動態趨勢</b>", font=dict(size=TITLE_FONT_SIZE)), height=400, margin=dict(l=20, r=20, t=50, b=20), showlegend=False, hovermode='x unified')
-                fig.update_yaxes(title_text="<b>Total Distance (m)</b>", secondary_y=False, showgrid=False, range=[0, max(p_stat_df['Total Distance']) * 1.3])
-                fig.update_yaxes(title_text=f"<b>{progression_metric.split(' ')[1]}</b>", secondary_y=True, showgrid=False, range=[0, max(p_stat_df['Peak Value']) * 1.3])
+                # 藍色長條圖 (左軸) - 名稱簡化為 Distance (m)
+                fig.add_trace(go.Bar(
+                    x=p_stat_df['Date'], y=p_stat_df['Distance'], 
+                    name="Distance (m)", marker_color="#4a86e8", 
+                    text=p_stat_df['Distance'].astype(int), textposition='inside', opacity=0.7
+                ), secondary_y=False)
+                
+                # 橘色折線圖 (右軸) - 名稱直接使用選項名稱
+                fig.add_trace(go.Scatter(
+                    x=p_stat_df['Date'], y=p_stat_df['Target Metric'], 
+                    name=progression_metric, mode="lines+markers+text", 
+                    line=dict(color="#d35400", width=4), marker=dict(size=12, symbol="diamond"), 
+                    text=p_stat_df['Target Metric'].round(1), textposition="top center", 
+                    textfont=dict(color="#d35400", size=DATA_LABEL_SIZE)
+                ), secondary_y=True)
+                
+                fig.update_layout(
+                    title=dict(text=f"<b>{player}</b>", font=dict(size=TITLE_FONT_SIZE)), 
+                    height=400, margin=dict(l=20, r=20, t=50, b=20), 
+                    showlegend=False, hovermode='x unified'
+                )
+                
+                # 乾淨的 Y 軸標籤
+                fig.update_yaxes(title_text="<b>Distance (m)</b>", secondary_y=False, showgrid=False, range=[0, max(p_stat_df['Distance']) * 1.3])
+                fig.update_yaxes(title_text=f"<b>{progression_metric}</b>", secondary_y=True, showgrid=False, range=[0, max(p_stat_df['Target Metric']) * 1.3])
                 
                 fig = apply_chart_style(fig)
                 st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
-
-    st.write("---")
-    col2_1, col2_2 = st.columns(2)
     
     # ------------------------------------------
     # 模組二：實戰對抗強度演進
