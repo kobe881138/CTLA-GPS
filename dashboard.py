@@ -3,12 +3,13 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
+from plotly.subplots import make_subplots
 import os
 
 # ==========================================
-# 🌟 基礎設定與澳洲隊基準數據 (Sixes 統一標準)
+# 🌟 基礎設定與基準數據 (Australia Benchmark)
 # ==========================================
-st.set_page_config(page_title="🥍 Sixes Lacrosse GPS 戰情室", layout="wide")
+st.set_page_config(page_title="🥍 Sixes Lacrosse 運科戰情室", layout="wide")
 
 AUS_TOP_SPEED = 7.29      
 AUS_AVG_SPEED = 117.36      
@@ -32,22 +33,20 @@ TITLE_FONT_SIZE = 20
 
 PLOTLY_CONFIG = {
     'displayModeBar': True,
-    'toImageButtonOptions': {
-        'format': 'png', 
-        'filename': 'Lacrosse_GPS_Chart', 
-        'scale': 3  
-    }
+    'toImageButtonOptions': {'format': 'png', 'filename': 'Lacrosse_GPS_Chart', 'scale': 3}
 }
 
 def apply_chart_style(fig):
-    """統一為所有圖表套用大字體與清晰排版"""
     fig.update_layout(
         font=dict(size=GLOBAL_FONT_SIZE, family="Arial, sans-serif"),
         legend=dict(font=dict(size=GLOBAL_FONT_SIZE)),
         xaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), title=dict(font=dict(size=GLOBAL_FONT_SIZE))),
         yaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), title=dict(font=dict(size=GLOBAL_FONT_SIZE))),
     )
-    fig.update_traces(textfont_size=DATA_LABEL_SIZE, selector=dict(type='bar'))
+    # 針對沒有 text 的 traces 加上防呆
+    for trace in fig.data:
+        if hasattr(trace, 'textfont'):
+            trace.textfont = dict(size=DATA_LABEL_SIZE)
     return fig
 
 # ==========================================
@@ -76,46 +75,39 @@ def get_month(date_str):
     except: return 0
 df['Month'] = df['Date'].apply(get_month)
 
+# 物理學外掛：預先計算所有資料的衝刺密度
+df['HSD Density (m/min)'] = df['Avg Speed (m/min)'] * df['HSD Ratio']
+df['HSD Ratio (%)'] = df['HSD Ratio'] * 100
+
 # ==========================================
-# 🌟 高效動態聚合模組 
+# 🌟 高效動態聚合模組 (針對跨日週期)
 # ==========================================
 @st.cache_data
 def generate_agg_df(subset_df, period_name):
     daily_totals = subset_df[subset_df['Session'].astype(str).str.contains('Total|total', case=False, na=False)]
-    if daily_totals.empty:
-        daily_totals = subset_df
+    if daily_totals.empty: daily_totals = subset_df
         
-    agg_funcs = {
-        'Total Distance (m)': 'sum',
-        'Avg Speed (m/min)': 'mean',
-        'Top Speed (m/s)': 'max',
-        'HSD Ratio': 'mean'
-    }
+    agg_funcs = {'Total Distance (m)': 'sum', 'Avg Speed (m/min)': 'mean', 'Top Speed (m/s)': 'max', 'HSD Ratio': 'mean'}
     if 'RPE' in daily_totals.columns: agg_funcs['RPE'] = 'mean'
     
     agg = daily_totals.groupby('Player').agg(agg_funcs).reset_index()
     if 'RPE' in agg.columns: agg['RPE'] = agg['RPE'].round(1)
         
-    agg['Date'] = period_name
-    agg['Session'] = period_name + ' Total'
+    agg['Date'], agg['Session'] = period_name, period_name + ' Total'
+    agg['HSD Ratio (%)'] = agg['HSD Ratio'] * 100
+    agg['HSD Density (m/min)'] = agg['Avg Speed (m/min)'] * agg['HSD Ratio']
     return agg
 
 agg_dfs = []
 for m in df['Month'].unique():
     if m > 0:
         m_df = df[df['Month'] == m]
-        if not m_df.empty:
-            agg_dfs.append(generate_agg_df(m_df, f'{m}月份'))
+        if not m_df.empty: agg_dfs.append(generate_agg_df(m_df, f'{m}月份'))
             
 q1_df = df[df['Month'].isin([1, 2, 3])]
-if not q1_df.empty:
-    agg_dfs.append(generate_agg_df(q1_df, 'Q1 (1-3月)'))
+if not q1_df.empty: agg_dfs.append(generate_agg_df(q1_df, 'Q1 (1-3月)'))
 
-# ==========================================
-# 🌟 側邊欄與自定義週期 (盃賽融合器)
-# ==========================================
-if 'custom_periods' not in st.session_state:
-    st.session_state['custom_periods'] = {}
+if 'custom_periods' not in st.session_state: st.session_state['custom_periods'] = {}
 
 st.sidebar.title("🥍 戰情室導覽")
 st.sidebar.markdown("### 🔄 建立專屬盃賽/週期")
@@ -131,27 +123,27 @@ with st.sidebar.expander("🛠️ 點此展開盃賽融合器"):
 
 for c_name, c_dates in st.session_state['custom_periods'].items():
     c_df = df[df['Date'].isin(c_dates)]
-    if not c_df.empty:
-        agg_dfs.append(generate_agg_df(c_df, c_name))
+    if not c_df.empty: agg_dfs.append(generate_agg_df(c_df, c_name))
 
-if agg_dfs:
-    df = pd.concat([df] + agg_dfs, ignore_index=True)
-    
+if agg_dfs: df = pd.concat([df] + agg_dfs, ignore_index=True)
 custom_and_auto_names = list(st.session_state['custom_periods'].keys()) + ['Q1 (1-3月)'] + [f'{m}月份' for m in df['Month'].unique() if m > 0]
 
 st.sidebar.markdown("---") 
 page_mode = st.sidebar.radio(
-    "📌 選擇分析模式：", 
-    ["📊 團隊總覽 (Team Dashboard)", "👤 個人報告 (Player Profile)"]
+    "📌 選擇報告層級：", 
+    [
+        "📊 1. During Event (當日團隊總覽)", 
+        "📈 2. Post Event (賽後進步診斷)",
+        "👤 3. Individual (個人歷史履歷)"
+    ]
 )
 st.sidebar.markdown("---") 
 
 # ==========================================
-# 🚀 模式一：團隊總覽 (Team Dashboard)
+# 🚀 模式一：During Event Report (當日團隊總覽)
 # ==========================================
-if page_mode == "📊 團隊總覽 (Team Dashboard)":
-    st.title("🥍 Sixes Lacrosse 團隊戰情室")
-    st.caption("💡 提示：將滑鼠移至任意圖表右上角，點擊 **照相機圖示 📷** 即可下載高畫質 PNG 檔供報告使用。")
+if page_mode == "📊 1. During Event (當日團隊總覽)":
+    st.title("🥍 During Event Report - 單日團隊負荷診斷")
     
     st.sidebar.header("⚙️ 團隊設定面板")
     available_dates = df['Date'].dropna().unique().tolist()
@@ -170,21 +162,16 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
     if not df_filtered.empty:
         agg_dict = {'Total Distance (m)': 'max', 'Avg Speed (m/min)': 'mean', 'Top Speed (m/s)': 'max', 'HSD Ratio': 'max'}
         if 'RPE' in df_filtered.columns: agg_dict['RPE'] = 'max'
-        
         df_plot = df_filtered.groupby('Player').agg(agg_dict).reset_index()
 
-        st.subheader(f"1️⃣ {selected_session} 外部與內部負荷")
+        st.subheader(f"1️⃣ {selected_session} 外部與內部總負荷 (Loading)")
         fig1 = go.Figure()
         hover_text = df_plot.apply(lambda row: f"Distance: {row['Total Distance (m)']:.0f} m<br>RPE: {row['RPE']}" if 'RPE' in row and pd.notna(row['RPE']) else f"Distance: {row['Total Distance (m)']:.0f} m", axis=1)
         display_text = df_plot.apply(lambda row: f"{row['Total Distance (m)']:.0f}<br>(RPE: {row['RPE']})" if 'RPE' in row and pd.notna(row['RPE']) else f"{row['Total Distance (m)']:.0f}", axis=1)
 
-        fig1.add_trace(go.Bar(
-            x=df_plot['Player'], y=df_plot['Total Distance (m)'], text=display_text, textposition='auto', hoverinfo='text', hovertext=hover_text,
-            marker_color='#4a86e8', name='Total Distance'
-        ))
+        fig1.add_trace(go.Bar(x=df_plot['Player'], y=df_plot['Total Distance (m)'], text=display_text, textposition='auto', hoverinfo='text', hovertext=hover_text, marker_color='#4a86e8', name='Total Distance'))
         team_avg_dist = df_plot['Total Distance (m)'].mean()
-        if pd.notna(team_avg_dist):
-            fig1.add_hline(y=team_avg_dist, line_dash="dash", line_color="#e06666", annotation_text="Team Avg", annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
+        if pd.notna(team_avg_dist): fig1.add_hline(y=team_avg_dist, line_dash="dash", line_color="#e06666", annotation_text="Team Avg", annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
         fig1.update_layout(yaxis_title="<b>Total Distance (m)</b>", margin=dict(t=20, b=20), height=450)
         fig1 = apply_chart_style(fig1)
         st.plotly_chart(fig1, use_container_width=True, config=PLOTLY_CONFIG)
@@ -192,226 +179,232 @@ if page_mode == "📊 團隊總覽 (Team Dashboard)":
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("2️⃣ 平均速度表現")
-            spd_mode = st.radio("顯示模式：", ["📌 當前時段", "📅 多日比較 (最多5天)"], horizontal=True, key='spd_mode')
-            if spd_mode == "📌 當前時段":
-                fig2 = go.Figure()
-                fig2.add_trace(go.Bar(x=df_plot['Player'], y=df_plot['Avg Speed (m/min)'], text=df_plot['Avg Speed (m/min)'].round(1), textposition='auto', marker_color='#8e7cc3'))
-                fig2.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL", annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
-                team_avg_spd = df_plot['Avg Speed (m/min)'].mean()
-                if pd.notna(team_avg_spd):
-                    fig2.add_hline(y=team_avg_spd, line_dash="dash", line_color="red", opacity=0.5, annotation_text="Team Avg", annotation_font_size=GLOBAL_FONT_SIZE)
-                fig2.update_layout(yaxis_title="<b>Avg Speed (m/min)</b>", margin=dict(t=20, b=20), height=450)
-                fig2 = apply_chart_style(fig2)
-                st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
-            else:
-                valid_dates = [d for d in df['Date'].unique() if '/' in str(d) and d not in custom_and_auto_names]
-                default_d = selected_date if selected_date in valid_dates else valid_dates[-1] if valid_dates else None
-                selected_spd_dates = st.multiselect("選擇欲比較的日期 (最多5天)：", valid_dates, default=[default_d] if default_d else [], max_selections=5, key='spd_multi')
-                if selected_spd_dates:
-                    df_spd = df[(df['Date'].isin(selected_spd_dates)) & (df['Session'].astype(str).str.contains('Total|total', case=False, na=False))]
-                    if not df_spd.empty:
-                        fig2_multi = px.bar(df_spd, x='Player', y='Avg Speed (m/min)', color='Date', barmode='group', text_auto='.1f', color_discrete_sequence=px.colors.qualitative.Pastel)
-                        fig2_multi.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL", annotation_font_size=GLOBAL_FONT_SIZE)
-                        fig2_multi.update_layout(yaxis_title="<b>Avg Speed (m/min)</b>", margin=dict(t=20, b=20), height=450)
-                        fig2_multi = apply_chart_style(fig2_multi)
-                        st.plotly_chart(fig2_multi, use_container_width=True, config=PLOTLY_CONFIG)
-                    else: st.info("💡 找不到所選日期的 Total 數據來進行比較。")
-                else: st.info("💡 請至少選擇一個日期。")
+            fig2 = go.Figure()
+            fig2.add_trace(go.Bar(x=df_plot['Player'], y=df_plot['Avg Speed (m/min)'], text=df_plot['Avg Speed (m/min)'].round(1), textposition='auto', marker_color='#8e7cc3'))
+            fig2.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL", annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
+            team_avg_spd = df_plot['Avg Speed (m/min)'].mean()
+            if pd.notna(team_avg_spd): fig2.add_hline(y=team_avg_spd, line_dash="dash", line_color="red", opacity=0.5, annotation_text="Team Avg", annotation_font_size=GLOBAL_FONT_SIZE)
+            fig2.update_layout(yaxis_title="<b>Avg Speed (m/min)</b>", margin=dict(t=20, b=20), height=450)
+            fig2 = apply_chart_style(fig2)
+            st.plotly_chart(fig2, use_container_width=True, config=PLOTLY_CONFIG)
 
         with col2:
-            is_custom_or_auto = selected_date in custom_and_auto_names
+            st.subheader("3️⃣ 單節/單一科目 體能消長")
+            drill_sessions = [s for s in sessions_for_date if 'total' not in str(s).lower()]
+            drill_sessions = sorted(drill_sessions)
             df_q = pd.DataFrame()
-            color_col = 'Session'
-            
-            if is_custom_or_auto:
-                st.subheader(f"3️⃣ {selected_date} 每日負荷消長")
-                if selected_date in st.session_state['custom_periods']: target_dates = st.session_state['custom_periods'][selected_date]
-                elif selected_date == 'Q1 (1-3月)': target_dates = df[df['Month'].isin([1, 2, 3])]['Date'].unique().tolist()
-                elif '月份' in selected_date: target_dates = df[df['Month'] == int(selected_date.replace('月份', ''))]['Date'].unique().tolist()
-                else: target_dates = []
-                    
-                target_dates = [d for d in target_dates if d not in custom_and_auto_names and '/' in str(d)]
-                df_q = df[(df['Date'].isin(target_dates)) & (df['Session'].astype(str).str.contains('Total|total', case=False, na=False))]
-                color_col = 'Date'
-                
-                if not df_q.empty:
-                    fig3_q = px.bar(df_q, x='Player', y='Total Distance (m)', color=color_col, barmode='group', text_auto='.0f', color_discrete_sequence=px.colors.qualitative.Safe)
-                    team_avg_q_dist = df_q['Total Distance (m)'].mean()
-                    if pd.notna(team_avg_q_dist): fig3_q.add_hline(y=team_avg_q_dist, line_dash="dash", line_color="#e06666", annotation_text="Period Daily Avg", annotation_font_size=GLOBAL_FONT_SIZE)
-                    fig3_q.update_layout(yaxis_title="<b>Total Distance (m)</b>", margin=dict(t=20, b=20), height=450)
-                    fig3_q = apply_chart_style(fig3_q)
-                    st.plotly_chart(fig3_q, use_container_width=True, config=PLOTLY_CONFIG)
-                else: st.info("💡 此週期內找不到每日的 Total 資料。")
-                
-            else:
-                st.subheader("3️⃣ 單節/單一科目 體能消長")
-                drill_sessions = [s for s in sessions_for_date if 'total' not in str(s).lower()]
-                drill_sessions = sorted(drill_sessions)
+            if len(drill_sessions) > 0:
+                df_q = df[df['Session'].isin(drill_sessions)]
+                fig3_q = px.bar(df_q, x='Player', y='Total Distance (m)', color='Session', barmode='group', text_auto='.0f', color_discrete_sequence=px.colors.qualitative.Safe)
+                team_avg_q_dist = df_q['Total Distance (m)'].mean()
+                if pd.notna(team_avg_q_dist): fig3_q.add_hline(y=team_avg_q_dist, line_dash="dash", line_color="#e06666", annotation_text="Drill Avg", annotation_font_size=GLOBAL_FONT_SIZE)
+                fig3_q.update_layout(yaxis_title="<b>Total Distance (m)</b>", margin=dict(t=20, b=20), height=450)
+                fig3_q = apply_chart_style(fig3_q)
+                st.plotly_chart(fig3_q, use_container_width=True, config=PLOTLY_CONFIG)
+            else: st.info("💡 此時段為單日加總資料，無獨立 Drill。")
 
-                if len(drill_sessions) > 0:
-                    df_q = df[df['Session'].isin(drill_sessions)]
-                    color_col = 'Session'
-                    
-                    fig3_q = px.bar(df_q, x='Player', y='Total Distance (m)', color=color_col, barmode='group', text_auto='.0f', color_discrete_sequence=px.colors.qualitative.Safe)
-                    team_avg_q_dist = df_q['Total Distance (m)'].mean()
-                    if pd.notna(team_avg_q_dist): fig3_q.add_hline(y=team_avg_q_dist, line_dash="dash", line_color="#e06666", annotation_text="Drill Avg", annotation_font_size=GLOBAL_FONT_SIZE)
-                    fig3_q.update_layout(yaxis_title="<b>Total Distance (m)</b>", margin=dict(t=20, b=20), height=450)
-                    fig3_q = apply_chart_style(fig3_q)
-                    st.plotly_chart(fig3_q, use_container_width=True, config=PLOTLY_CONFIG)
-                else: st.info("💡 此時段為單日加總資料，無獨立 Drill。")
-
-        # ==========================================
-        # ⚡ 全新功能：高強度熱力矩陣 (Intensity Heatmap)
-        # ==========================================
         if not df_q.empty:
             st.write("<br>", unsafe_allow_html=True)
             st.subheader("4️⃣ 訓練特徵熱力圖矩陣 (Heatmap Matrix)")
-            
-            # 雙邏輯切換器
-            heatmap_metric = st.radio(
-                "請選擇熱力圖色彩權重：", 
-                ["⚡ 檢視 衝刺密度 (HSD m/min) - 關注絕對無氧消耗", "📊 檢視 HSD 佔比 (%) - 關注爆發力跑動特徵"], 
-                horizontal=True
-            )
-            
-            df_hm = df_q.copy()
-            # 💡 物理學數學外掛：直接用 HSD Ratio * Avg Speed 換算出每分鐘衝刺距離
-            df_hm['HSD Density (m/min)'] = df_hm['Avg Speed (m/min)'] * df_hm['HSD Ratio']
-            df_hm['HSD Ratio (%)'] = df_hm['HSD Ratio'] * 100
+            heatmap_metric = st.radio("請選擇熱力圖色彩權重：", ["⚡ 檢視 衝刺密度 (HSD m/min) - 關注絕對無氧消耗", "📊 檢視 HSD 佔比 (%) - 關注爆發力跑動特徵"], horizontal=True)
             
             if "密度" in heatmap_metric:
                 val_col = 'HSD Density (m/min)'
-                color_scale = 'OrRd'  # 白-橘-紅 (代表高壓)
-                # 設定天花板為 μ + 2σ
-                z_mean = df_hm[val_col].mean()
-                z_std = df_hm[val_col].std()
-                z_max = z_mean + 2 * z_std if pd.notna(z_std) and z_std > 0 else df_hm[val_col].max()
+                color_scale = 'OrRd'  
+                z_mean = df_q[val_col].mean()
+                z_std = df_q[val_col].std()
+                z_max = z_mean + 2 * z_std if pd.notna(z_std) and z_std > 0 else df_q[val_col].max()
             else:
                 val_col = 'HSD Ratio (%)'
-                color_scale = 'YlGnBu' # 黃-綠-藍 (代表特徵分佈)
-                # 設定天花板為 Daily Max
-                z_max = df_hm[val_col].max()
+                color_scale = 'YlGnBu' 
+                z_max = df_q[val_col].max()
                 
-            if pd.isna(z_max): z_max = 1  # 避免全零報錯
-
-            # 轉置為熱力圖矩陣 (Y軸=選手, X軸=科目)
-            pivot_df = df_hm.pivot_table(index='Player', columns=color_col, values=val_col, aggfunc='max')
-            pivot_df = pivot_df.sort_index() 
+            if pd.isna(z_max) or z_max == 0: z_max = 1  
+            pivot_df = df_q.pivot_table(index='Player', columns='Session', values=val_col, aggfunc='max').sort_index()
             
             fig4 = go.Figure(data=go.Heatmap(
-                z=pivot_df.values,
-                x=pivot_df.columns,
-                y=pivot_df.index,
-                colorscale=color_scale,
-                zmin=0,
-                zmax=z_max,
-                text=np.round(pivot_df.values, 1),
-                texttemplate="%{text}",
-                textfont={"size": DATA_LABEL_SIZE},
-                hoverongaps=False,
+                z=pivot_df.values, x=pivot_df.columns, y=pivot_df.index, colorscale=color_scale, zmin=0, zmax=z_max,
+                text=np.round(pivot_df.values, 1), texttemplate="%{text}", textfont={"size": DATA_LABEL_SIZE}, hoverongaps=False,
                 hovertemplate="Player: %{y}<br>Session: %{x}<br>Value: %{z:.1f}<extra></extra>"
             ))
-            
-            # 動態調整高度，避免選手過多時擠在一起
             dynamic_height = max(350, len(pivot_df.index) * 45 + 100)
-            
-            fig4.update_layout(
-                xaxis_title=f"<b>{color_col}</b>",
-                yaxis_title="<b>Player</b>",
-                margin=dict(t=20, b=20),
-                height=dynamic_height
-            )
+            fig4.update_layout(xaxis_title="<b>Session</b>", yaxis_title="<b>Player</b>", margin=dict(t=20, b=20), height=dynamic_height)
             fig4 = apply_chart_style(fig4)
             st.plotly_chart(fig4, use_container_width=True, config=PLOTLY_CONFIG)
+    else: st.warning("此時段沒有數據喔！")
 
-        st.write("<br>", unsafe_allow_html=True)
-        st.subheader("5️⃣ 爆發力象限圖")
-        spacer1, col_center, spacer2 = st.columns([1, 4, 1])
-        with col_center:
-            x_data = df_plot['HSD Ratio'] * 100
-            y_data = df_plot['Top Speed (m/s)']
-            session_avg_hsd = x_data.mean()
-            session_avg_top = y_data.mean()
-            
-            fig5 = go.Figure()
-            fig5.add_trace(go.Scatter(
-                x=x_data, y=y_data, mode='markers+text', text=df_plot['Player'], textposition="top center",
-                textfont=dict(size=DATA_LABEL_SIZE, color="black"),
-                marker=dict(color='#3d85c6', size=14, line=dict(width=1, color='white')), name='Players',
-                hovertemplate='<b>%{text}</b><br>HSD Ratio: %{x:.1f}%<br>Top Speed: %{y:.1f} m/s<extra></extra>'
-            ))
-            if pd.notna(session_avg_hsd) and pd.notna(session_avg_top):
-                fig5.add_trace(go.Scatter(
-                    x=[session_avg_hsd], y=[session_avg_top], mode='markers',
-                    marker=dict(color='#38761d', symbol='cross', size=16), name='Team Avg',
-                    hovertemplate='<b>團隊平均</b><br>HSD Ratio: %{x:.1f}%<br>Top Speed: %{y:.1f} m/s<extra></extra>'
-                ))
-                fig5.add_vline(x=session_avg_hsd, line_dash="dash", line_color="#38761d", opacity=0.5)
-                fig5.add_hline(y=session_avg_top, line_dash="dash", line_color="#38761d", opacity=0.5)
-            fig5.add_trace(go.Scatter(
-                x=[AUS_HSD_RATIO], y=[AUS_TOP_SPEED], mode='markers',
-                marker=dict(color='red', symbol='star', size=20, line=dict(width=1, color='darkgray')), name=default_baseline_name,
-                hovertemplate=f'<b>{default_baseline_name}</b><br>HSD Ratio: %{{x:.1f}}%<br>Top Speed: %{{y:.1f}} m/s<extra></extra>'
-            ))
-            fig5.update_layout(
-                xaxis_title='<b>HSD Ratio (%)</b>', yaxis_title='<b>Top Speed (m/s)</b>',
-                margin=dict(l=20, r=20, t=30, b=20), hovermode='closest', height=500,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            fig5 = apply_chart_style(fig5)
-            st.plotly_chart(fig5, use_container_width=True, config=PLOTLY_CONFIG)
-            
+# ==========================================
+# 🚀 模式二：Post Event Report (賽後進步診斷) - 雙軌診斷核心
+# ==========================================
+elif page_mode == "📈 2. Post Event (賽後進步診斷)":
+    st.title("🥍 Post Event Report - 進步與實戰診斷書")
+    
+    # 準備乾淨的實際集訓日期 (排除自定義月份或Q1)
+    actual_dates = [d for d in df['Date'].unique() if '/' in str(d)]
+    actual_dates = sorted(actual_dates, key=lambda x: (int(x.split('/')[0]), int(x.split('/')[1])))
+
+    if not actual_dates:
+        st.warning("目前沒有足夠的單日集訓數據可供分析。")
+        st.stop()
+
+    st.sidebar.header("🎯 診斷設定")
+    all_players = sorted(df['Player'].unique().tolist())
+    target_players = st.sidebar.multiselect("1. 選擇教練點名的目標選手 (Target Players)：", all_players, default=all_players[:2] if len(all_players)>1 else all_players)
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**🏆 突破榜單設定**")
+    compare_base = st.sidebar.selectbox("比較基準 (Base Event)：", actual_dates, index=max(0, len(actual_dates)-2))
+    compare_curr = st.sidebar.selectbox("當前驗收 (Current Event)：", actual_dates, index=len(actual_dates)-1)
+    
+    st.write("---")
+    # ------------------------------------------
+    # 模組一：雙軌趨勢圖 (Dual-Axis Progression)
+    # ------------------------------------------
+    st.subheader("📊 模組一：目標選手進步追蹤 (Loading vs Progression)")
+    st.caption("💡 長條圖 (左軸)：當日總跑動負荷 (Total Distance) | 折線圖 (右軸)：當日訓練中最極限的峰值輸出 (Peak Output)")
+    
+    progression_metric = st.radio("選擇前景折線圖 (Progression) 要追蹤的無氧指標：", ["⚡ Peak HSD Density (最高衝刺密度)", "🏃 Peak Top Speed (最高極速)"], horizontal=True)
+
+    if not target_players:
+        st.info("請從左側面板選擇 Target Players。")
     else:
-        st.warning("此時段沒有數據喔！")
+        for player in target_players:
+            p_df = df[df['Player'] == player]
+            p_stats = []
+            
+            for d in actual_dates:
+                d_df = p_df[p_df['Date'] == d]
+                total_sessions = d_df[d_df['Session'].astype(str).str.contains('Total', case=False)]
+                drill_sessions = d_df[~d_df['Session'].astype(str).str.contains('Total', case=False)]
+                
+                # Loading: 當日加總或擷取 Total 欄位
+                if not total_sessions.empty: tot_dist = total_sessions['Total Distance (m)'].sum()
+                else: tot_dist = drill_sessions['Total Distance (m)'].sum() if not drill_sessions.empty else 0
+                
+                # Progression: 排除 Total，抓取單一科目最高峰值
+                peak_val = 0
+                if not drill_sessions.empty:
+                    if "Density" in progression_metric: peak_val = drill_sessions['HSD Density (m/min)'].max()
+                    else: peak_val = drill_sessions['Top Speed (m/s)'].max()
+                
+                if tot_dist > 0 or peak_val > 0:
+                    p_stats.append({'Date': d, 'Total Distance': tot_dist, 'Peak Value': peak_val})
+                    
+            if p_stats:
+                p_stat_df = pd.DataFrame(p_stats)
+                
+                # 繪製 Plotly 雙軸圖
+                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                fig.add_trace(go.Bar(x=p_stat_df['Date'], y=p_stat_df['Total Distance'], name="Total Load (m)", marker_color="#4a86e8", text=p_stat_df['Total Distance'].astype(int), textposition='inside', opacity=0.7), secondary_y=False)
+                fig.add_trace(go.Scatter(x=p_stat_df['Date'], y=p_stat_df['Peak Value'], name="Peak Output", mode="lines+markers+text", line=dict(color="#d35400", width=4), marker=dict(size=12, symbol="diamond"), text=p_stat_df['Peak Value'].round(1), textposition="top center", textfont=dict(color="#d35400", size=DATA_LABEL_SIZE)), secondary_y=True)
+                
+                fig.update_layout(title=dict(text=f"<b>{player} 的雙軌動態趨勢</b>", font=dict(size=TITLE_FONT_SIZE)), height=400, margin=dict(l=20, r=20, t=50, b=20), showlegend=False, hovermode='x unified')
+                fig.update_yaxes(title_text="<b>Total Distance (m)</b>", secondary_y=False, showgrid=False, range=[0, max(p_stat_df['Total Distance']) * 1.3])
+                fig.update_yaxes(title_text=f"<b>{progression_metric.split(' ')[1]}</b>", secondary_y=True, showgrid=False, range=[0, max(p_stat_df['Peak Value']) * 1.3])
+                
+                fig = apply_chart_style(fig)
+                st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+
+    st.write("---")
+    col2_1, col2_2 = st.columns(2)
+    
+    # ------------------------------------------
+    # 模組二：實戰對抗強度演進
+    # ------------------------------------------
+    with col2_1:
+        st.subheader("⚔️ 模組二：實戰對抗強度演進 (Game/Scrimmage)")
+        game_df = df[df['Session'].astype(str).str.contains('Game|Scrimmage|比賽', case=False, na=False)].copy()
+        
+        if not game_df.empty:
+            game_trend = game_df.groupby('Date')['HSD Density (m/min)'].mean().reset_index()
+            # 確保按照時間排序
+            game_trend['Date'] = pd.Categorical(game_trend['Date'], categories=actual_dates, ordered=True)
+            game_trend = game_trend.dropna().sort_values('Date')
+            
+            fig_game = go.Figure()
+            fig_game.add_trace(go.Bar(
+                x=game_trend['Date'], y=game_trend['HSD Density (m/min)'], 
+                text=game_trend['HSD Density (m/min)'].round(2), textposition='auto', marker_color='#27ae60'
+            ))
+            fig_game.update_layout(title=dict(text="<b>全隊平均實戰衝刺密度 (HSD m/min)</b>"), yaxis_title="<b>HSD m/min</b>", height=400, margin=dict(t=40, b=20))
+            fig_game = apply_chart_style(fig_game)
+            st.plotly_chart(fig_game, use_container_width=True, config=PLOTLY_CONFIG)
+            st.caption("💡 解讀：此圖已排除戰術訓練，純粹顯示歷次集訓中『比賽情境』的無氧快攻節奏是否加快。")
+        else:
+            st.info("歷史資料中找不到包含 'Game' 或 'Scrimmage' 的科目。")
+
+    # ------------------------------------------
+    # 模組三：體能動態榜單 (Delta Board)
+    # ------------------------------------------
+    with col2_2:
+        st.subheader(f"🚨 模組三：體能動態榜單 ({compare_base} vs {compare_curr})")
+        
+        def get_peak_stats(date_str):
+            sub_df = df[df['Date'] == date_str]
+            drill_df = sub_df[~sub_df['Session'].astype(str).str.contains('Total', case=False)]
+            if drill_df.empty: return pd.DataFrame()
+            return drill_df.groupby('Player').agg({'Top Speed (m/s)': 'max', 'HSD Density (m/min)': 'max'}).reset_index()
+            
+        base_df = get_peak_stats(compare_base)
+        curr_df = get_peak_stats(compare_curr)
+        
+        if base_df.empty or curr_df.empty:
+            st.warning("所選的日期缺乏獨立訓練科目可供比較。")
+        else:
+            delta_df = pd.merge(base_df, curr_df, on='Player', suffixes=('_base', '_curr'))
+            delta_df['Speed_Delta'] = delta_df['Top Speed (m/s)_curr'] - delta_df['Top Speed (m/s)_base']
+            delta_df['HSD_Delta'] = delta_df['HSD Density (m/min)_curr'] - delta_df['HSD Density (m/min)_base']
+            
+            # 取 HSD Density 成長最多的前 3 名
+            risers = delta_df.sort_values('HSD_Delta', ascending=False).head(3)
+            # 取 HSD Density 衰退最多的前 3 名
+            fallers = delta_df.sort_values('HSD_Delta', ascending=True).head(3)
+            fallers = fallers[fallers['HSD_Delta'] < 0] # 確保是真的退步
+            
+            st.markdown("#### 📈 狀態上升榜 (Risers - 衝刺密度提升)")
+            for _, row in risers.iterrows():
+                if row['HSD_Delta'] > 0:
+                    st.success(f"**{row['Player']}** | 密度躍升: **+{row['HSD_Delta']:.2f}** m/min (極速變化: {row['Speed_Delta']:+.1f} m/s)")
+            
+            st.markdown("#### 📉 疲勞/退步警示榜 (Fallers - 衝刺密度下滑)")
+            if fallers.empty: st.info("無顯著衰退者，全隊維持良好輸出！")
+            for _, row in fallers.iterrows():
+                st.error(f"**{row['Player']}** | 密度下滑: **{row['HSD_Delta']:.2f}** m/min (極速變化: {row['Speed_Delta']:+.1f} m/s)")
+            
+            st.caption("💡 教練可關注 Fallers 名單，檢視是否為近期訓練過載導致的急性疲勞。")
 
 # ==========================================
-# 🚀 模式二：個人戰情與開表中心 (情境與客觀統計版)
+# 🚀 模式三：Individual Report (個人歷史履歷)
 # ==========================================
-elif page_mode == "👤 個人報告 (Player Profile)":
-    st.title("🥍 Sixes Lacrosse 個人狀態體檢與開表中心")
+elif page_mode == "👤 3. Individual (個人歷史履歷)":
+    st.title("🥍 Individual Report - 個人歷史狀態體檢")
     
     st.sidebar.header("👤 監控對象設定")
     all_players = sorted(df['Player'].unique().tolist())
     selected_player = st.sidebar.selectbox("🏃 選擇監控選手：", all_players)
     
     player_sessions = df[df['Player'] == selected_player]['Session'].dropna().unique().tolist()
-    # 讓有 Total 字眼的排在前面方便選，其餘依照日期排序
     player_sessions = sorted(player_sessions, key=lambda x: (0 if 'total' in str(x).lower() else 1, x))
     
     if not player_sessions:
         st.warning(f"💡 找不到 {selected_player} 的任何數據。")
     else:
         st.write("---")
-        
-        # ------------------------------------------
-        # 🎛️ 1. 無限制多選篩選器 & 情境切換開關
-        # ------------------------------------------
         st.subheader("🔍 步驟一：選擇比較母體與檢視視角")
-        
-        view_mode = st.radio(
-            "請選擇您要如何詮釋這批數據：", 
-            ["📊 訓練量視角 (關注總量，預設)", "⚡ 專項強度/比賽視角 (關注高強度跑動佔比)"], 
-            horizontal=True
-        )
+        view_mode = st.radio("請選擇您要如何詮釋這批數據：", ["📊 訓練量視角 (關注總量)", "⚡ 專項強度視角 (關注高強度跑動佔比)"], horizontal=True)
         
         default_selections = player_sessions[-5:] if len(player_sessions) >= 5 else player_sessions
-        selected_hist_sessions = st.multiselect(
-            "請自由勾選做為比較母體的歷史事件 (將依此動態計算平均值與標準差)：", 
-            player_sessions, 
-            default=default_selections
-        )
+        selected_hist_sessions = st.multiselect("請勾選歷史事件以動態計算統計基準 (μ ± σ)：", player_sessions, default=default_selections)
 
         if not selected_hist_sessions:
-            st.info("請從上方選單中至少挑選一個歷史事件來進行分析。")
+            st.info("請至少挑選一個歷史事件。")
         else:
             df_hist = df[(df['Player'] == selected_player) & (df['Session'].isin(selected_hist_sessions))].copy()
             df_hist['Session'] = pd.Categorical(df_hist['Session'], categories=selected_hist_sessions, ordered=True)
             df_hist = df_hist.sort_values('Session')
-            df_hist['HSD Ratio (%)'] = (df_hist['HSD Ratio'] * 100).round(2)
 
             mean_dist = df_hist['Total Distance (m)'].mean()
             std_dist = df_hist['Total Distance (m)'].std() if len(df_hist) > 1 else 0
-            
             mean_hsd = df_hist['HSD Ratio (%)'].mean()
             std_hsd = df_hist['HSD Ratio (%)'].std() if len(df_hist) > 1 else 0
             
@@ -423,9 +416,6 @@ elif page_mode == "👤 個人報告 (Player Profile)":
             latest_record = df_hist.iloc[-1]
             latest_session_name = latest_record['Session']
             
-            # ------------------------------------------
-            # 💡 2. 客觀指標卡片 (KPI Cards)
-            # ------------------------------------------
             st.write("<br>", unsafe_allow_html=True)
             st.markdown(f"#### 🔎 {latest_session_name} 的客觀狀態標籤")
             
@@ -433,56 +423,31 @@ elif page_mode == "👤 個人報告 (Player Profile)":
                 latest_dist = latest_record['Total Distance (m)']
                 diff_dist = latest_dist - mean_dist
                 is_vol_extreme = (std_dist > 0) and (latest_dist > vol_upper_bound)
-                
                 label_color = "#1f77b4" if not is_vol_extreme else "#2c3e50" 
                 label_text = f"總距離：{latest_dist:.0f} m"
                 sub_text = f"與所選平均差：{'+' if diff_dist>0 else ''}{diff_dist:.0f} m"
                 
-                if is_vol_extreme:
-                    st.markdown(f"<div style='background-color: #e8f4f8; padding: 15px; border-left: 5px solid {label_color}; border-radius: 5px;'>"
-                                f"<h4 style='color: {label_color}; margin:0;'>[ 極端訓練量 ( > +2 SD ) ]</h4>"
-                                f"<p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，已超出常態分佈範圍。</p></div>", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<div style='background-color: #f8f9fa; padding: 15px; border-left: 5px solid #808080; border-radius: 5px;'>"
-                                f"<h4 style='color: #808080; margin:0;'>[ 常態訓練量水位 ]</h4>"
-                                f"<p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，落於合理分佈區間。</p></div>", unsafe_allow_html=True)
-
+                if is_vol_extreme: st.markdown(f"<div style='background-color: #e8f4f8; padding: 15px; border-left: 5px solid {label_color}; border-radius: 5px;'><h4 style='color: {label_color}; margin:0;'>[ 極端訓練量 ( > +2 SD ) ]</h4><p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，已超出常態分佈範圍。</p></div>", unsafe_allow_html=True)
+                else: st.markdown(f"<div style='background-color: #f8f9fa; padding: 15px; border-left: 5px solid #808080; border-radius: 5px;'><h4 style='color: #808080; margin:0;'>[ 常態訓練量水位 ]</h4><p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，落於合理分佈區間。</p></div>", unsafe_allow_html=True)
             else:
                 latest_hsd = latest_record['HSD Ratio (%)']
                 diff_hsd = latest_hsd - mean_hsd
                 is_int_extreme = (std_hsd > 0) and (latest_hsd > int_upper_bound)
-                
                 label_color = "#d35400" if not is_int_extreme else "#c0392b"
                 label_text = f"HSD 佔比：{latest_hsd:.1f}%"
                 sub_text = f"與所選平均差：{'+' if diff_hsd>0 else ''}{diff_hsd:.1f}%"
                 
-                if is_int_extreme:
-                    st.markdown(f"<div style='background-color: #fdedec; padding: 15px; border-left: 5px solid {label_color}; border-radius: 5px;'>"
-                                f"<h4 style='color: {label_color}; margin:0;'>[ 高強度負荷 ( > +1 SD ) ]</h4>"
-                                f"<p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，顯示經歷了高於常態的神經與無氧消耗。</p></div>", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<div style='background-color: #f8f9fa; padding: 15px; border-left: 5px solid #808080; border-radius: 5px;'>"
-                                f"<h4 style='color: #808080; margin:0;'>[ 常態專項強度 ]</h4>"
-                                f"<p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，無顯著強度極端值。</p></div>", unsafe_allow_html=True)
+                if is_int_extreme: st.markdown(f"<div style='background-color: #fdedec; padding: 15px; border-left: 5px solid {label_color}; border-radius: 5px;'><h4 style='color: {label_color}; margin:0;'>[ 高強度負荷 ( > +1 SD ) ]</h4><p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，顯示經歷了高於常態的神經與無氧消耗。</p></div>", unsafe_allow_html=True)
+                else: st.markdown(f"<div style='background-color: #f8f9fa; padding: 15px; border-left: 5px solid #808080; border-radius: 5px;'><h4 style='color: #808080; margin:0;'>[ 常態專項強度 ]</h4><p style='margin:5px 0 0 0; font-size:16px;'>本期{label_text}。{sub_text}，無顯著強度極端值。</p></div>", unsafe_allow_html=True)
 
-            # ------------------------------------------
-            # 📈 3. 縱向趨勢圖表 (帶有動態統計線)
-            # ------------------------------------------
             st.write("<br>", unsafe_allow_html=True)
             st.subheader(f"📈 步驟二：{selected_player} 統計趨勢分析")
-            
             col_t1, col_t2 = st.columns(2)
             
             def create_trend_chart(metric_col, title, color, ref_line=None, ref_label="", ref_color="gold"):
                 fig = go.Figure()
-                fig.add_trace(go.Bar(
-                    x=df_hist['Session'], y=df_hist[metric_col],
-                    text=df_hist[metric_col].round(1) if 'Distance' not in metric_col else df_hist[metric_col].astype(int),
-                    textposition='auto', marker_color=color, name=selected_player
-                ))
-                if ref_line is not None and pd.notna(ref_line) and ref_line > 0:
-                    fig.add_hline(y=ref_line, line_width=3, line_dash="dash", line_color=ref_color, annotation_text=ref_label, annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
-                
+                fig.add_trace(go.Bar(x=df_hist['Session'], y=df_hist[metric_col], text=df_hist[metric_col].round(1) if 'Distance' not in metric_col else df_hist[metric_col].astype(int), textposition='auto', marker_color=color, name=selected_player))
+                if ref_line is not None and pd.notna(ref_line) and ref_line > 0: fig.add_hline(y=ref_line, line_width=3, line_dash="dash", line_color=ref_color, annotation_text=ref_label, annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
                 fig.update_layout(title=dict(text=f"<b>{title}</b>", font=dict(size=TITLE_FONT_SIZE)), margin=dict(t=40, b=20), height=350, showlegend=False)
                 return apply_chart_style(fig)
 
@@ -504,37 +469,20 @@ elif page_mode == "👤 個人報告 (Player Profile)":
                 fig_hsd = create_trend_chart('HSD Ratio (%)', '高強度跑動佔比 (Explosiveness)', '#93c47d', ref_line=sd1_line, ref_label=sd1_label, ref_color="#c0392b")
                 st.plotly_chart(fig_hsd, use_container_width=True, config=PLOTLY_CONFIG)
 
-            # ------------------------------------------
-            # 📋 4. 課表設計專用數據表
-            # ------------------------------------------
             st.write("<br>", unsafe_allow_html=True)
             st.subheader("📋 步驟三：課表設計數據參考中心 (Programming Data)")
-            
             table_cols = ['Date', 'Session', 'Total Distance (m)', 'Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio (%)']
-            if 'RPE' in df.columns:
-                table_cols.append('RPE')
+            if 'RPE' in df.columns: table_cols.append('RPE')
                 
             df_table = df_hist[table_cols].copy()
-            
             numeric_cols = [col for col in table_cols if col not in ['Date', 'Session']]
-            max_vals = df_table[numeric_cols].max()
-            avg_vals = df_table[numeric_cols].mean()
+            max_vals, avg_vals = df_table[numeric_cols].max(), df_table[numeric_cols].mean()
             
-            summary_data = []
-            summary_data.append({'Date': '---', 'Session': '🏆 所選事件最大值 (MAX/PR)'})
-            summary_data.append({'Date': '---', 'Session': '📊 所選事件平均值 (AVG/μ)'})
-            df_summary = pd.DataFrame(summary_data)
-            
-            for col in numeric_cols:
-                df_summary.loc[0, col] = max_vals[col]
-                df_summary.loc[1, col] = avg_vals[col]
+            df_summary = pd.DataFrame([{'Date': '---', 'Session': '🏆 所選事件最大值 (MAX/PR)'}, {'Date': '---', 'Session': '📊 所選事件平均值 (AVG/μ)'}])
+            for col in numeric_cols: df_summary.loc[0, col], df_summary.loc[1, col] = max_vals[col], avg_vals[col]
                 
-            df_table['Total Distance (m)'] = df_table['Total Distance (m)'].round(0).astype(int)
-            df_summary['Total Distance (m)'] = df_summary['Total Distance (m)'].round(0).astype(int)
+            df_table['Total Distance (m)'], df_summary['Total Distance (m)'] = df_table['Total Distance (m)'].round(0).astype(int), df_summary['Total Distance (m)'].round(0).astype(int)
             for col in ['Avg Speed (m/min)', 'Top Speed (m/s)', 'HSD Ratio (%)', 'RPE']:
-                if col in df_table.columns:
-                    df_table[col] = df_table[col].round(2)
-                    df_summary[col] = df_summary[col].round(2)
+                if col in df_table.columns: df_table[col], df_summary[col] = df_table[col].round(2), df_summary[col].round(2)
 
-            final_table = pd.concat([df_table, df_summary], ignore_index=True)
-            st.dataframe(final_table, use_container_width=True, hide_index=True)
+            st.dataframe(pd.concat([df_table, df_summary], ignore_index=True), use_container_width=True, hide_index=True)
