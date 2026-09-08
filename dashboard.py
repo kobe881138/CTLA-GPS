@@ -23,8 +23,6 @@ AUS_BASELINES = {
         'hsd_ratio': AUS_HSD_RATIO
     }
 }
-default_baseline_name = list(AUS_BASELINES.keys())[0]
-default_baseline_data = AUS_BASELINES[default_baseline_name]
 
 # 🌟 全局字體與圖表外觀設定中心
 GLOBAL_FONT_SIZE = 16       
@@ -43,7 +41,6 @@ def apply_chart_style(fig):
         xaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), title=dict(font=dict(size=GLOBAL_FONT_SIZE))),
         yaxis=dict(tickfont=dict(size=GLOBAL_FONT_SIZE), title=dict(font=dict(size=GLOBAL_FONT_SIZE))),
     )
-    # 針對沒有 text 的 traces 加上防呆
     for trace in fig.data:
         if hasattr(trace, 'textfont'):
             trace.textfont = dict(size=DATA_LABEL_SIZE)
@@ -234,12 +231,11 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
     else: st.warning("此時段沒有數據喔！")
 
 # ==========================================
-# 🚀 模式二：Post Event Report (賽後進步診斷) - 雙軌診斷核心
+# 🚀 模式二：Post Event Report (賽後進步診斷)
 # ==========================================
 elif page_mode == "📈 2. Post Event (賽後進步診斷)":
     st.title("🥍 Post Event Report - 進步與實戰診斷書")
     
-    # 準備乾淨的實際集訓日期 (排除自定義月份或Q1)
     actual_dates = [d for d in df['Date'].unique() if '/' in str(d)]
     actual_dates = sorted(actual_dates, key=lambda x: (int(x.split('/')[0]), int(x.split('/')[1])))
 
@@ -262,7 +258,6 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
     # ------------------------------------------
     st.subheader("📊 模組一：目標選手進步追蹤 (Loading vs Progression)")
     
-    # 🌟 乾淨俐落的選項，拔除所有冗長單字
     progression_metric = st.radio(
         "選擇右軸 (折線圖) 要顯示的指標：", 
         ["HSD per min", "HSD ratio", "Max Speed"], 
@@ -285,7 +280,7 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
                 if not total_sessions.empty: tot_dist = total_sessions['Total Distance (m)'].sum()
                 else: tot_dist = drill_sessions['Total Distance (m)'].sum() if not drill_sessions.empty else 0
                 
-                # 右軸：根據乾淨的選項，抓取對應指標的最大值
+                # 右軸：抓取對應指標的最大值
                 peak_val = 0
                 if not drill_sessions.empty:
                     if progression_metric == "HSD per min":
@@ -304,14 +299,14 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
                 # 繪製 Plotly 雙軸圖
                 fig = make_subplots(specs=[[{"secondary_y": True}]])
                 
-                # 藍色長條圖 (左軸) - 名稱簡化為 Distance (m)
+                # 藍色長條圖 (左軸)
                 fig.add_trace(go.Bar(
                     x=p_stat_df['Date'], y=p_stat_df['Distance'], 
                     name="Distance (m)", marker_color="#4a86e8", 
                     text=p_stat_df['Distance'].astype(int), textposition='inside', opacity=0.7
                 ), secondary_y=False)
                 
-                # 橘色折線圖 (右軸) - 名稱直接使用選項名稱
+                # 橘色折線圖 (右軸)
                 fig.add_trace(go.Scatter(
                     x=p_stat_df['Date'], y=p_stat_df['Target Metric'], 
                     name=progression_metric, mode="lines+markers+text", 
@@ -326,12 +321,16 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
                     showlegend=False, hovermode='x unified'
                 )
                 
-                # 乾淨的 Y 軸標籤
                 fig.update_yaxes(title_text="<b>Distance (m)</b>", secondary_y=False, showgrid=False, range=[0, max(p_stat_df['Distance']) * 1.3])
                 fig.update_yaxes(title_text=f"<b>{progression_metric}</b>", secondary_y=True, showgrid=False, range=[0, max(p_stat_df['Target Metric']) * 1.3])
                 
                 fig = apply_chart_style(fig)
                 st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+
+    st.write("---")
+    
+    # 🌟 確保排版欄位在這裡被正確建立 (這就是報錯的原因)
+    col2_1, col2_2 = st.columns(2)
     
     # ------------------------------------------
     # 模組二：實戰對抗強度演進
@@ -342,7 +341,6 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
         
         if not game_df.empty:
             game_trend = game_df.groupby('Date')['HSD Density (m/min)'].mean().reset_index()
-            # 確保按照時間排序
             game_trend['Date'] = pd.Categorical(game_trend['Date'], categories=actual_dates, ordered=True)
             game_trend = game_trend.dropna().sort_values('Date')
             
@@ -351,10 +349,9 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
                 x=game_trend['Date'], y=game_trend['HSD Density (m/min)'], 
                 text=game_trend['HSD Density (m/min)'].round(2), textposition='auto', marker_color='#27ae60'
             ))
-            fig_game.update_layout(title=dict(text="<b>全隊平均實戰衝刺密度 (HSD m/min)</b>"), yaxis_title="<b>HSD m/min</b>", height=400, margin=dict(t=40, b=20))
+            fig_game.update_layout(title=dict(text="<b>全隊平均實戰衝刺密度 (HSD per min)</b>"), yaxis_title="<b>HSD per min</b>", height=400, margin=dict(t=40, b=20))
             fig_game = apply_chart_style(fig_game)
             st.plotly_chart(fig_game, use_container_width=True, config=PLOTLY_CONFIG)
-            st.caption("💡 解讀：此圖已排除戰術訓練，純粹顯示歷次集訓中『比賽情境』的無氧快攻節奏是否加快。")
         else:
             st.info("歷史資料中找不到包含 'Game' 或 'Scrimmage' 的科目。")
 
@@ -362,7 +359,7 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
     # 模組三：體能動態榜單 (Delta Board)
     # ------------------------------------------
     with col2_2:
-        st.subheader(f"🚨 模組三：體能動態榜單 ({compare_base} vs {compare_curr})")
+        st.subheader(f"🚨 模組三：體能動態榜 ({compare_base} vs {compare_curr})")
         
         def get_peak_stats(date_str):
             sub_df = df[df['Date'] == date_str]
@@ -380,11 +377,9 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
             delta_df['Speed_Delta'] = delta_df['Top Speed (m/s)_curr'] - delta_df['Top Speed (m/s)_base']
             delta_df['HSD_Delta'] = delta_df['HSD Density (m/min)_curr'] - delta_df['HSD Density (m/min)_base']
             
-            # 取 HSD Density 成長最多的前 3 名
             risers = delta_df.sort_values('HSD_Delta', ascending=False).head(3)
-            # 取 HSD Density 衰退最多的前 3 名
             fallers = delta_df.sort_values('HSD_Delta', ascending=True).head(3)
-            fallers = fallers[fallers['HSD_Delta'] < 0] # 確保是真的退步
+            fallers = fallers[fallers['HSD_Delta'] < 0] 
             
             st.markdown("#### 📈 狀態上升榜 (Risers - 衝刺密度提升)")
             for _, row in risers.iterrows():
@@ -395,8 +390,6 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
             if fallers.empty: st.info("無顯著衰退者，全隊維持良好輸出！")
             for _, row in fallers.iterrows():
                 st.error(f"**{row['Player']}** | 密度下滑: **{row['HSD_Delta']:.2f}** m/min (極速變化: {row['Speed_Delta']:+.1f} m/s)")
-            
-            st.caption("💡 教練可關注 Fallers 名單，檢視是否為近期訓練過載導致的急性疲勞。")
 
 # ==========================================
 # 🚀 模式三：Individual Report (個人歷史履歷)
