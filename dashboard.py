@@ -204,104 +204,109 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
             st.write("<br>", unsafe_allow_html=True)
             st.subheader("4️⃣ 訓練特徵熱力圖矩陣 (Heatmap Matrix)")
             
-            # 🔥 擴充選項：加入 Z-Score 模式
-            heatmap_metric = st.radio("請選擇熱力圖色彩權重：", [
-                "🎯 檢視 速度負荷 Z-Score (Avg Speed) - 個體化相對基準",
-                "⚡ 檢視 衝刺密度 (HSD m/min) - 關注絕對無氧消耗", 
-                "📊 檢視 HSD 佔比 (%) - 關注爆發力跑動特徵"
-            ], horizontal=True)
+            # 🔥 終極擴充：三大指標的 Z-Score 與絕對值選單
+            heatmap_metric = st.radio("請選擇熱力圖檢視維度：", [
+                "🎯 [相對負荷 Z-Score] 平均速度 (Avg Speed) - 關注整體代謝作功",
+                "🎯 [相對負荷 Z-Score] 衝刺密度 (HSD m/min) - 關注無氧神經負荷", 
+                "🎯 [相對負荷 Z-Score] 高強跑佔比 (HSD %) - 關注爆發力特徵",
+                "📊 [絕對數值] 衝刺密度 (HSD m/min)",
+                "📊 [絕對數值] 高強跑佔比 (HSD %)"
+            ], horizontal=False)
             
             dynamic_height = max(350, len(df_q['Player'].unique()) * 45 + 100)
 
             # ==========================================
-            # 🚀 全新模組：Z-Score 相對負荷計算與繪製
+            # 🚀 終極 Z-Score 計算引擎 (一次計算三大指標)
             # ==========================================
-            if "Z-Score" in heatmap_metric:
-                # 1. 建立歷史母體 (排除 Total)
-                df_base = df[~df['Session'].astype(str).str.contains('total', case=False, na=False)].copy()
+            target_metrics = ['Avg Speed (m/min)', 'HSD Density (m/min)', 'HSD Ratio (%)']
+            
+            # 1. 建立歷史母體 (排除 Total)
+            df_base = df[~df['Session'].astype(str).str.contains('total', case=False, na=False)].copy()
+            df_base['Session_Type'] = np.where(
+                df_base['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False),
+                'Game', 'Training'
+            )
+            
+            # 2. 計算每位選手在兩種情境下，三大指標的平均與標準差
+            baseline_stats = df_base.groupby(['Player', 'Session_Type'])[target_metrics].agg(['mean', 'std']).reset_index()
+            # 攤平多重索引欄位名稱 (例如變成 'Avg Speed (m/min)_mean')
+            baseline_stats.columns = ['_'.join(col).strip('_') if type(col) is tuple else col for col in baseline_stats.columns.values]
+            
+            # 3. 把當天資料(df_q)進行標籤分類並與 Baseline 合併
+            df_q_z = df_q.copy()
+            df_q_z['Session_Type'] = np.where(
+                df_q_z['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False),
+                'Game', 'Training'
+            )
+            df_q_z = df_q_z.merge(baseline_stats, on=['Player', 'Session_Type'], how='left')
+            
+            # 4. 批次計算三大指標的 Z-Score
+            for metric in target_metrics:
+                mean_col = f"{metric}_mean"
+                std_col = f"{metric}_std"
+                z_col = f"{metric}_Z_Score"
                 
-                # 2. 透過消去法建立分類標籤 (包含 game 的是 Game，剩下都是 Training)
-                df_base['Session_Type'] = np.where(
-                    df_base['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False),
-                    'Game',
-                    'Training'
-                )
-                
-                # 3. 計算每位選手在 Game/Training 兩種情境的歷史平均與標準差
-                baseline_stats = df_base.groupby(['Player', 'Session_Type'])['Avg Speed (m/min)'].agg(['mean', 'std']).reset_index()
-                baseline_stats.rename(columns={'mean': 'Hist_Mean', 'std': 'Hist_Std'}, inplace=True)
-                
-                # 4. 把當天資料(df_q)進行相同的標籤分類，並與 Baseline 合併
-                df_q_z = df_q.copy()
-                df_q_z['Session_Type'] = np.where(
-                    df_q_z['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False),
-                    'Game',
-                    'Training'
-                )
-                df_q_z = df_q_z.merge(baseline_stats, on=['Player', 'Session_Type'], how='left')
-                
-                # 5. Z-Score 安全計算 (防呆：若標準差 NaN 或 0，直接填 0 顯示常態)
-                df_q_z['Hist_Std'] = df_q_z['Hist_Std'].fillna(0)
-                df_q_z['Z_Score'] = np.where(
-                    df_q_z['Hist_Std'] > 0,
-                    (df_q_z['Avg Speed (m/min)'] - df_q_z['Hist_Mean']) / df_q_z['Hist_Std'],
+                df_q_z[std_col] = df_q_z[std_col].fillna(0) # 防呆：標準差為空值補0
+                df_q_z[z_col] = np.where(
+                    df_q_z[std_col] > 0,
+                    (df_q_z[metric] - df_q_z[mean_col]) / df_q_z[std_col],
                     0
                 )
+
+            # ==========================================
+            # 🎨 繪圖邏輯分流 (Z-Score模式 vs 絕對值模式)
+            # ==========================================
+            if "Z-Score" in heatmap_metric:
+                # 判定使用者選了哪一個指標
+                if "Avg Speed" in heatmap_metric: active_metric = 'Avg Speed (m/min)'
+                elif "m/min" in heatmap_metric: active_metric = 'HSD Density (m/min)'
+                else: active_metric = 'HSD Ratio (%)'
                 
-                # 6. 準備樞紐矩陣供 Plotly 繪圖使用
-                pivot_z = df_q_z.pivot_table(index='Player', columns='Session', values='Z_Score', aggfunc='max').sort_index()
-                pivot_avg = df_q_z.pivot_table(index='Player', columns='Session', values='Avg Speed (m/min)', aggfunc='max').sort_index()
-                pivot_mean = df_q_z.pivot_table(index='Player', columns='Session', values='Hist_Mean', aggfunc='max').sort_index()
+                active_z_col = f"{active_metric}_Z_Score"
+                active_mean_col = f"{active_metric}_mean"
                 
-                # 7. 繪製發散型熱力圖
+                # 準備樞紐矩陣
+                pivot_z = df_q_z.pivot_table(index='Player', columns='Session', values=active_z_col, aggfunc='max').sort_index()
+                pivot_val = df_q_z.pivot_table(index='Player', columns='Session', values=active_metric, aggfunc='max').sort_index()
+                pivot_mean = df_q_z.pivot_table(index='Player', columns='Session', values=active_mean_col, aggfunc='max').sort_index()
+                
                 fig4 = go.Figure(data=go.Heatmap(
-                    z=pivot_z.values, 
-                    x=pivot_z.columns, 
-                    y=pivot_z.index, 
-                    colorscale='RdBu_r',       # 紅藍漸層發散色
-                    zmid=0, zmin=-2.5, zmax=2.5, # 0固定白色，大於+2.5最紅，小於-2.5最藍
-                    text=np.round(pivot_z.values, 1), 
-                    texttemplate="%{text:+0.1f}", 
-                    textfont={"size": DATA_LABEL_SIZE}, 
-                    hoverongaps=False,
-                    # 將絕對數據藏入 customdata 供 Hover 使用
-                    customdata=np.dstack((pivot_avg.values, pivot_mean.values)),
+                    z=pivot_z.values, x=pivot_z.columns, y=pivot_z.index, 
+                    colorscale='RdBu_r', zmid=0, zmin=-2.5, zmax=2.5,
+                    text=np.round(pivot_z.values, 1), texttemplate="%{text:+0.1f}", 
+                    textfont={"size": DATA_LABEL_SIZE}, hoverongaps=False,
+                    customdata=np.dstack((pivot_val.values, pivot_mean.values)),
                     hovertemplate=(
-                        "<b>Player:</b> %{y}<br>"
-                        "<b>Session:</b> %{x}<br>"
-                        "<b>Z-Score:</b> %{z:+.2f} SD<br>"
-                        "<b>當日平均速度:</b> %{customdata[0]:.1f} m/min<br>"
-                        "<b>個人歷史均值:</b> %{customdata[1]:.1f} m/min"
-                        "<extra></extra>"
+                        f"<b>Player:</b> %{{y}}<br>"
+                        f"<b>Session:</b> %{{x}}<br>"
+                        f"<b>Z-Score:</b> %{{z:+.2f}} SD<br>"
+                        f"<b>當日實測:</b> %{{customdata[0]:.1f}}<br>"
+                        f"<b>歷史均值:</b> %{{customdata[1]:.1f}}"
+                        f"<extra></extra>"
                     )
                 ))
-                fig4.update_layout(xaxis_title="<b>Session</b>", yaxis_title="<b>Player</b>", margin=dict(t=20, b=20), height=dynamic_height)
                 
-            # ==========================================
-            # 原始模組：絕對負荷計算 (HSD Density / HSD Ratio)
-            # ==========================================
-            else:
+            else: # 絕對值模式
                 if "密度" in heatmap_metric:
-                    val_col = 'HSD Density (m/min)'
-                    color_scale = 'OrRd'  
-                    z_mean = df_q[val_col].mean()
-                    z_std = df_q[val_col].std()
+                    val_col, color_scale = 'HSD Density (m/min)', 'OrRd'
+                    z_mean, z_std = df_q[val_col].mean(), df_q[val_col].std()
                     z_max = z_mean + 2 * z_std if pd.notna(z_std) and z_std > 0 else df_q[val_col].max()
                 else:
-                    val_col = 'HSD Ratio (%)'
-                    color_scale = 'YlGnBu' 
+                    val_col, color_scale = 'HSD Ratio (%)', 'YlGnBu'
                     z_max = df_q[val_col].max()
                     
                 if pd.isna(z_max) or z_max == 0: z_max = 1  
                 pivot_df = df_q.pivot_table(index='Player', columns='Session', values=val_col, aggfunc='max').sort_index()
                 
                 fig4 = go.Figure(data=go.Heatmap(
-                    z=pivot_df.values, x=pivot_df.columns, y=pivot_df.index, colorscale=color_scale, zmin=0, zmax=z_max,
-                    text=np.round(pivot_df.values, 1), texttemplate="%{text}", textfont={"size": DATA_LABEL_SIZE}, hoverongaps=False,
+                    z=pivot_df.values, x=pivot_df.columns, y=pivot_df.index, 
+                    colorscale=color_scale, zmin=0, zmax=z_max,
+                    text=np.round(pivot_df.values, 1), texttemplate="%{text}", 
+                    textfont={"size": DATA_LABEL_SIZE}, hoverongaps=False,
                     hovertemplate="Player: %{y}<br>Session: %{x}<br>Value: %{z:.1f}<extra></extra>"
                 ))
-                fig4.update_layout(xaxis_title="<b>Session</b>", yaxis_title="<b>Player</b>", margin=dict(t=20, b=20), height=dynamic_height)
-            
+                
+            fig4.update_layout(xaxis_title="<b>Session</b>", yaxis_title="<b>Player</b>", margin=dict(t=20, b=20), height=dynamic_height)
             fig4 = apply_chart_style(fig4)
             st.plotly_chart(fig4, use_container_width=True, config=PLOTLY_CONFIG)
     else: st.warning("此時段沒有數據喔！")
