@@ -204,7 +204,6 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
             st.write("<br>", unsafe_allow_html=True)
             st.subheader("4️⃣ 訓練特徵熱力圖矩陣 (Heatmap Matrix)")
             
-            # 🔥 終極擴充：三大指標的 Z-Score 與絕對值選單
             heatmap_metric = st.radio("請選擇熱力圖檢視維度：", [
                 "🎯 [相對負荷 Z-Score] 平均速度 (Avg Speed) - 關注整體代謝作功",
                 "🎯 [相對負荷 Z-Score] 衝刺密度 (HSD m/min) - 關注無氧神經負荷", 
@@ -215,24 +214,16 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
             
             dynamic_height = max(350, len(df_q['Player'].unique()) * 45 + 100)
 
-            # ==========================================
-            # 🚀 終極 Z-Score 計算引擎 (一次計算三大指標)
-            # ==========================================
             target_metrics = ['Avg Speed (m/min)', 'HSD Density (m/min)', 'HSD Ratio (%)']
-            
-            # 1. 建立歷史母體 (排除 Total)
             df_base = df[~df['Session'].astype(str).str.contains('total', case=False, na=False)].copy()
             df_base['Session_Type'] = np.where(
                 df_base['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False),
                 'Game', 'Training'
             )
             
-            # 2. 計算每位選手在兩種情境下，三大指標的平均與標準差
             baseline_stats = df_base.groupby(['Player', 'Session_Type'])[target_metrics].agg(['mean', 'std']).reset_index()
-            # 攤平多重索引欄位名稱 (例如變成 'Avg Speed (m/min)_mean')
             baseline_stats.columns = ['_'.join(col).strip('_') if type(col) is tuple else col for col in baseline_stats.columns.values]
             
-            # 3. 把當天資料(df_q)進行標籤分類並與 Baseline 合併
             df_q_z = df_q.copy()
             df_q_z['Session_Type'] = np.where(
                 df_q_z['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False),
@@ -240,24 +231,19 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
             )
             df_q_z = df_q_z.merge(baseline_stats, on=['Player', 'Session_Type'], how='left')
             
-            # 4. 批次計算三大指標的 Z-Score
             for metric in target_metrics:
                 mean_col = f"{metric}_mean"
                 std_col = f"{metric}_std"
                 z_col = f"{metric}_Z_Score"
                 
-                df_q_z[std_col] = df_q_z[std_col].fillna(0) # 防呆：標準差為空值補0
+                df_q_z[std_col] = df_q_z[std_col].fillna(0)
                 df_q_z[z_col] = np.where(
                     df_q_z[std_col] > 0,
                     (df_q_z[metric] - df_q_z[mean_col]) / df_q_z[std_col],
                     0
                 )
 
-            # ==========================================
-            # 🎨 繪圖邏輯分流 (Z-Score模式 vs 絕對值模式)
-            # ==========================================
             if "Z-Score" in heatmap_metric:
-                # 判定使用者選了哪一個指標
                 if "Avg Speed" in heatmap_metric: active_metric = 'Avg Speed (m/min)'
                 elif "m/min" in heatmap_metric: active_metric = 'HSD Density (m/min)'
                 else: active_metric = 'HSD Ratio (%)'
@@ -265,7 +251,6 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
                 active_z_col = f"{active_metric}_Z_Score"
                 active_mean_col = f"{active_metric}_mean"
                 
-                # 準備樞紐矩陣
                 pivot_z = df_q_z.pivot_table(index='Player', columns='Session', values=active_z_col, aggfunc='max').sort_index()
                 pivot_val = df_q_z.pivot_table(index='Player', columns='Session', values=active_metric, aggfunc='max').sort_index()
                 pivot_mean = df_q_z.pivot_table(index='Player', columns='Session', values=active_mean_col, aggfunc='max').sort_index()
@@ -285,8 +270,7 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
                         f"<extra></extra>"
                     )
                 ))
-                
-            else: # 絕對值模式
+            else:
                 if "密度" in heatmap_metric:
                     val_col, color_scale = 'HSD Density (m/min)', 'OrRd'
                     z_mean, z_std = df_q[val_col].mean(), df_q[val_col].std()
@@ -315,7 +299,7 @@ if page_mode == "📊 1. During Event (當日團隊總覽)":
 # 🚀 模式二：Post Event Report (賽後進步診斷)
 # ==========================================
 elif page_mode == "📈 2. Post Event (賽後進步診斷)":
-    st.title("🥍 Post Event Report - 進步與實戰診斷書")
+    st.title("🥍 Post Event Report - 賽練速度與疲勞診斷")
     
     # 抓取所有實際包含 '/' 的單日日期，並照月份/日期排序
     actual_dates = [d for d in df['Date'].unique() if '/' in str(d)]
@@ -327,158 +311,183 @@ elif page_mode == "📈 2. Post Event (賽後進步診斷)":
 
     st.sidebar.header("🎯 診斷設定")
     all_players = sorted(df['Player'].unique().tolist())
-    target_players = st.sidebar.multiselect("1. 選擇目標選手 (Target Players)：", all_players, default=all_players[:2] if len(all_players)>1 else all_players)
+    target_players = st.sidebar.multiselect("1. 選擇目標選手 (Target Players)：", all_players, default=all_players[:5] if len(all_players)>=5 else all_players)
     
     default_trend_dates = actual_dates[-5:] if len(actual_dates) >= 5 else actual_dates
-    selected_trend_dates = st.sidebar.multiselect("2. 選擇趨勢圖要顯示的日期：", actual_dates, default=default_trend_dates)
+    selected_trend_dates = st.sidebar.multiselect("2. 選擇追蹤日期 (Dates)：", actual_dates, default=default_trend_dates)
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("**🏆 突破榜單設定**")
+    st.sidebar.markdown("**🏆 實戰突破榜設定**")
     compare_base = st.sidebar.selectbox("比較基準 (Base Event)：", actual_dates, index=max(0, len(actual_dates)-2))
     compare_curr = st.sidebar.selectbox("當前驗收 (Current Event)：", actual_dates, index=len(actual_dates)-1)
     
     st.write("---")
     # ------------------------------------------
-    # 模組一：雙軌趨勢圖 (Dual-Axis Progression)
+    # 模組一：賽練速度與疲勞追蹤 (Training vs Game 雙拼對照圖)
     # ------------------------------------------
-    st.subheader("📊 模組一：目標選手進步追蹤 (Loading vs Progression)")
-    
-    progression_metric = st.radio(
-        "選擇右軸 (折線圖) 要顯示的指標：", 
-        ["HSD per min", "HSD ratio", "Max Speed"], 
-        horizontal=True
-    )
+    st.subheader("📊 模組一：賽練移動速度與疲勞追蹤 (Avg Speed & RPE Progression)")
+    st.caption("💡 藍色/綠色長條代表外部輸出速度 (Avg Speed)；紅色折線代表內部體感疲勞 (RPE)。")
 
     if not target_players:
         st.info("請從左側面板選擇 Target Players。")
     elif not selected_trend_dates:
-        st.warning("請至少選擇一個日期來繪製趨勢圖。")
+        st.warning("請至少選擇一個日期來繪製圖表。")
     else:
-        # 確保使用者選取的日期能按照時間先後排序
         sorted_trend_dates = sorted(selected_trend_dates, key=lambda x: (int(x.split('/')[0]), int(x.split('/')[1])))
         
+        # 輔助函式：建立單一情境 (Training 或 Game) 的雙軸圖表
+        def build_dual_axis_chart(data_df, title, bar_color, line_color="#e74c3c"):
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            
+            # 外部負荷：平均速度長條圖
+            fig.add_trace(go.Bar(
+                x=data_df['Date'], y=data_df['Avg Speed'],
+                name="Avg Speed", marker_color=bar_color,
+                text=data_df['Avg Speed'].apply(lambda v: f"{v:.1f}" if pd.notna(v) and v > 0 else ""),
+                textposition='inside', opacity=0.85
+            ), secondary_y=False)
+            
+            # 內部負荷：RPE 折線圖
+            if 'RPE' in data_df.columns and data_df['RPE'].notna().any():
+                fig.add_trace(go.Scatter(
+                    x=data_df['Date'], y=data_df['RPE'],
+                    name="RPE", mode="lines+markers+text",
+                    line=dict(color=line_color, width=3),
+                    marker=dict(size=10, symbol="circle"),
+                    text=data_df['RPE'].apply(lambda v: f"{v:.1f}" if pd.notna(v) and v > 0 else ""),
+                    textposition="top center",
+                    textfont=dict(color=line_color, size=DATA_LABEL_SIZE)
+                ), secondary_y=True)
+            
+            max_spd = data_df['Avg Speed'].dropna().max() if not data_df['Avg Speed'].dropna().empty else 150
+            fig.update_layout(
+                title=dict(text=f"<b>{title}</b>", font=dict(size=TITLE_FONT_SIZE)),
+                height=380, margin=dict(l=20, r=20, t=50, b=20),
+                hovermode='x unified',
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            # 強制 X 軸依所選日期對齊排序
+            fig.update_xaxes(type='category', categoryorder='array', categoryarray=sorted_trend_dates)
+            fig.update_yaxes(title_text="<b>Avg Speed (m/min)</b>", secondary_y=False, showgrid=True, range=[0, max(max_spd * 1.3, 150)])
+            fig.update_yaxes(title_text="<b>RPE (1-10)</b>", secondary_y=True, showgrid=False, range=[0, 11], dtick=2)
+            return apply_chart_style(fig)
+
+        # 針對每一位選取的選手，產出橫向並排的左右對照圖
         for player in target_players:
+            st.markdown(f"#### 🏃 選手：{player}")
+            col_train, col_game = st.columns(2)
+            
             p_df = df[df['Player'] == player]
-            p_stats = []
+            train_records = []
+            game_records = []
             
             for d in sorted_trend_dates:
                 d_df = p_df[p_df['Date'] == d]
-                total_sessions = d_df[d_df['Session'].astype(str).str.contains('Total', case=False)]
-                drill_sessions = d_df[~d_df['Session'].astype(str).str.contains('Total', case=False)]
                 
-                if not total_sessions.empty: tot_dist = total_sessions['Total Distance (m)'].sum()
-                else: tot_dist = drill_sessions['Total Distance (m)'].sum() if not drill_sessions.empty else 0
-                
-                peak_val = 0
-                if not drill_sessions.empty:
-                    if progression_metric == "HSD per min":
-                        peak_val = drill_sessions['HSD Density (m/min)'].max()
-                    elif progression_metric == "HSD ratio":
-                        peak_val = drill_sessions['HSD Ratio (%)'].max()
-                    elif progression_metric == "Max Speed":
-                        peak_val = drill_sessions['Top Speed (m/s)'].max()
-                
-                if tot_dist > 0 or peak_val > 0:
-                    p_stats.append({'Date': d, 'Distance': tot_dist, 'Target Metric': peak_val})
+                # 區分 Training 與 Game (自動排除 Total，若當日無 Drill 則容錯採用 Total)
+                def extract_stats(sub_day_df, is_game=False):
+                    if is_game:
+                        type_df = sub_day_df[sub_day_df['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False)]
+                    else:
+                        type_df = sub_day_df[~sub_day_df['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False)]
                     
-            if p_stats:
-                p_stat_df = pd.DataFrame(p_stats)
+                    if type_df.empty: return None, None
+                    
+                    drills = type_df[~type_df['Session'].astype(str).str.contains('total', case=False, na=False)]
+                    active_df = drills if not drills.empty else type_df
+                    
+                    spd = active_df['Avg Speed (m/min)'].mean()
+                    rpe = active_df['RPE'].mean() if 'RPE' in active_df.columns and active_df['RPE'].notna().any() else None
+                    return spd, rpe
+
+                t_spd, t_rpe = extract_stats(d_df, is_game=False)
+                g_spd, g_rpe = extract_stats(d_df, is_game=True)
                 
-                fig = make_subplots(specs=[[{"secondary_y": True}]])
-                fig.add_trace(go.Bar(
-                    x=p_stat_df['Date'], y=p_stat_df['Distance'], 
-                    name="Distance (m)", marker_color="#4a86e8", 
-                    text=p_stat_df['Distance'].astype(int), textposition='inside', opacity=0.7
-                ), secondary_y=False)
+                train_records.append({'Date': d, 'Avg Speed': t_spd, 'RPE': t_rpe})
+                game_records.append({'Date': d, 'Avg Speed': g_spd, 'RPE': g_rpe})
+            
+            train_stat_df = pd.DataFrame(train_records)
+            game_stat_df = pd.DataFrame(game_records)
+            
+            with col_train:
+                fig_train = build_dual_axis_chart(train_stat_df, f"{player} - Training 科目表現", bar_color="#4a86e8")
+                st.plotly_chart(fig_train, use_container_width=True, config=PLOTLY_CONFIG)
                 
-                fig.add_trace(go.Scatter(
-                    x=p_stat_df['Date'], y=p_stat_df['Target Metric'], 
-                    name=progression_metric, mode="lines+markers+text", 
-                    line=dict(color="#d35400", width=4), marker=dict(size=12, symbol="diamond"), 
-                    text=p_stat_df['Target Metric'].round(1), textposition="top center", 
-                    textfont=dict(color="#d35400", size=DATA_LABEL_SIZE)
-                ), secondary_y=True)
-                
-                fig.update_layout(
-                    title=dict(text=f"<b>{player}</b>", font=dict(size=TITLE_FONT_SIZE)), 
-                    height=400, margin=dict(l=20, r=20, t=50, b=20), 
-                    showlegend=False, hovermode='x unified'
-                )
-                
-                fig.update_yaxes(title_text="<b>Distance (m)</b>", secondary_y=False, showgrid=False, range=[0, max(p_stat_df['Distance']) * 1.3])
-                fig.update_yaxes(title_text=f"<b>{progression_metric}</b>", secondary_y=True, showgrid=False, range=[0, max(p_stat_df['Target Metric']) * 1.3])
-                
-                fig = apply_chart_style(fig)
-                st.plotly_chart(fig, use_container_width=True, config=PLOTLY_CONFIG)
+            with col_game:
+                fig_game = build_dual_axis_chart(game_stat_df, f"{player} - Game 實戰對抗表現", bar_color="#27ae60")
+                st.plotly_chart(fig_game, use_container_width=True, config=PLOTLY_CONFIG)
 
     st.write("---")
     
     col2_1, col2_2 = st.columns(2)
     
     # ------------------------------------------
-    # 模組二：實戰對抗強度演進
+    # 模組二：全隊實戰均速演進
     # ------------------------------------------
     with col2_1:
-        st.subheader("⚔️ 模組二：實戰對抗強度演進 (Game/Scrimmage)")
-        game_df = df[df['Session'].astype(str).str.contains('Game|Scrimmage|比賽', case=False, na=False)].copy()
+        st.subheader("⚔️ 模組二：全隊實戰平均速度演進 (Game Avg Speed)")
+        game_all_df = df[df['Session'].astype(str).str.contains('Game|Scrimmage|比賽', case=False, na=False)].copy()
+        game_all_drills = game_all_df[~game_all_df['Session'].astype(str).str.contains('total', case=False, na=False)]
+        active_game_df = game_all_drills if not game_all_drills.empty else game_all_df
         
-        if not game_df.empty:
-            game_trend = game_df.groupby('Date')['HSD Density (m/min)'].mean().reset_index()
-            game_trend['Date'] = pd.Categorical(game_trend['Date'], categories=actual_dates, ordered=True)
-            game_trend = game_trend.dropna().sort_values('Date')
+        if not active_game_df.empty:
+            team_game_trend = active_game_df.groupby('Date')['Avg Speed (m/min)'].mean().reset_index()
+            team_game_trend['Date'] = pd.Categorical(team_game_trend['Date'], categories=actual_dates, ordered=True)
+            team_game_trend = team_game_trend.dropna().sort_values('Date')
             
             if selected_trend_dates:
-                game_trend = game_trend[game_trend['Date'].isin(selected_trend_dates)]
+                team_game_trend = team_game_trend[team_game_trend['Date'].isin(selected_trend_dates)]
             
-            if not game_trend.empty:
-                fig_game = go.Figure()
-                fig_game.add_trace(go.Bar(
-                    x=game_trend['Date'], y=game_trend['HSD Density (m/min)'], 
-                    text=game_trend['HSD Density (m/min)'].round(2), textposition='auto', marker_color='#27ae60'
+            if not team_game_trend.empty:
+                fig_team_game = go.Figure()
+                fig_team_game.add_trace(go.Bar(
+                    x=team_game_trend['Date'], y=team_game_trend['Avg Speed (m/min)'], 
+                    text=team_game_trend['Avg Speed (m/min)'].round(1), textposition='auto', marker_color='#27ae60'
                 ))
-                fig_game.update_layout(title=dict(text="<b>全隊平均實戰衝刺密度 (HSD per min)</b>"), yaxis_title="<b>HSD per min</b>", height=400, margin=dict(t=40, b=20))
-                fig_game = apply_chart_style(fig_game)
-                st.plotly_chart(fig_game, use_container_width=True, config=PLOTLY_CONFIG)
+                fig_team_game.add_hline(y=AUS_AVG_SPEED, line_width=3, line_color="gold", annotation_text="AUS SL", annotation_position="top right", annotation_font_size=GLOBAL_FONT_SIZE)
+                fig_team_game.update_layout(title=dict(text="<b>全隊實戰平均速度 (m/min)</b>"), yaxis_title="<b>Avg Speed (m/min)</b>", height=400, margin=dict(t=40, b=20))
+                fig_team_game = apply_chart_style(fig_team_game)
+                st.plotly_chart(fig_team_game, use_container_width=True, config=PLOTLY_CONFIG)
             else:
-                st.info("您選取的日期區間內，沒有進行 Game 或 Scrimmage 實戰。")
+                st.info("所選日期區間內無 Game 相關數據。")
         else:
-            st.info("歷史資料中找不到包含 'Game' 或 'Scrimmage' 的科目。")
+            st.info("歷史資料中找不到包含 'Game' 的科目。")
 
     # ------------------------------------------
-    # 模組三：體能動態榜單 (Delta Board)
+    # 模組三：實戰速度突破榜單 (Game Speed Delta Board)
     # ------------------------------------------
     with col2_2:
-        st.subheader(f"🚨 模組三：體能動態榜 ({compare_base} vs {compare_curr})")
+        st.subheader(f"🚨 模組三：實戰均速突破榜 ({compare_base} vs {compare_curr})")
         
-        def get_peak_stats(date_str):
-            sub_df = df[df['Date'] == date_str]
-            drill_df = sub_df[~sub_df['Session'].astype(str).str.contains('Total', case=False)]
-            if drill_df.empty: return pd.DataFrame()
-            return drill_df.groupby('Player').agg({'Top Speed (m/s)': 'max', 'HSD Density (m/min)': 'max'}).reset_index()
+        def get_game_speed_stats(date_str):
+            sub_df = df[(df['Date'] == date_str) & (df['Session'].astype(str).str.contains('game|scrimmage|比賽', case=False, na=False))]
+            drills = sub_df[~sub_df['Session'].astype(str).str.contains('Total', case=False)]
+            active = drills if not drills.empty else sub_df
+            if active.empty: return pd.DataFrame()
+            return active.groupby('Player')['Avg Speed (m/min)'].mean().reset_index()
             
-        base_df = get_peak_stats(compare_base)
-        curr_df = get_peak_stats(compare_curr)
+        base_df = get_game_speed_stats(compare_base)
+        curr_df = get_game_speed_stats(compare_curr)
         
         if base_df.empty or curr_df.empty:
-            st.warning("所選的日期缺乏獨立訓練科目可供比較。")
+            st.warning("所選的比較基準日缺乏實戰數據供比較。")
         else:
             delta_df = pd.merge(base_df, curr_df, on='Player', suffixes=('_base', '_curr'))
-            delta_df['Speed_Delta'] = delta_df['Top Speed (m/s)_curr'] - delta_df['Top Speed (m/s)_base']
-            delta_df['HSD_Delta'] = delta_df['HSD Density (m/min)_curr'] - delta_df['HSD Density (m/min)_base']
+            delta_df['Speed_Delta'] = delta_df['Avg Speed (m/min)_curr'] - delta_df['Avg Speed (m/min)_base']
             
-            risers = delta_df.sort_values('HSD_Delta', ascending=False).head(3)
-            fallers = delta_df.sort_values('HSD_Delta', ascending=True).head(3)
-            fallers = fallers[fallers['HSD_Delta'] < 0] 
+            risers = delta_df.sort_values('Speed_Delta', ascending=False).head(3)
+            fallers = delta_df.sort_values('Speed_Delta', ascending=True).head(3)
+            fallers = fallers[fallers['Speed_Delta'] < 0] 
             
-            st.markdown("#### 📈 狀態上升榜 (Risers - 衝刺密度提升)")
+            st.markdown("#### 📈 狀態上升榜 (實戰均速提升)")
             for _, row in risers.iterrows():
-                if row['HSD_Delta'] > 0:
-                    st.success(f"**{row['Player']}** | 密度躍升: **+{row['HSD_Delta']:.2f}** m/min (極速變化: {row['Speed_Delta']:+.1f} m/s)")
+                if row['Speed_Delta'] > 0:
+                    st.success(f"**{row['Player']}** | 均速躍升: **+{row['Speed_Delta']:.1f}** m/min (基準: {row['Avg Speed (m/min)_base']:.1f} → 驗收: {row['Avg Speed (m/min)_curr']:.1f})")
             
-            st.markdown("#### 📉 疲勞/退步警示榜 (Fallers - 衝刺密度下滑)")
-            if fallers.empty: st.info("無顯著衰退者，全隊維持良好輸出！")
+            st.markdown("#### 📉 疲勞/掉速警示榜 (實戰均速下滑)")
+            if fallers.empty: st.info("無顯著衰退者，全隊實戰跑動節奏維持良好！")
             for _, row in fallers.iterrows():
-                st.error(f"**{row['Player']}** | 密度下滑: **{row['HSD_Delta']:.2f}** m/min (極速變化: {row['Speed_Delta']:+.1f} m/s)")
+                st.error(f"**{row['Player']}** | 均速下滑: **{row['Speed_Delta']:.1f}** m/min (基準: {row['Avg Speed (m/min)_base']:.1f} → 驗收: {row['Avg Speed (m/min)_curr']:.1f})")
 
 # ==========================================
 # 🚀 模式三：Individual Report (個人歷史履歷)
